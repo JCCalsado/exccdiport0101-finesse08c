@@ -438,7 +438,6 @@ const profileInitial = computed(() => {
                                 <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
                                     {{ (user as any).department ?? '—' }}
                                 </div>
-                                <p class="text-xs text-muted-foreground">Assigned by Admin — contact Admin to change.</p>
                             </div>
 
                             <!-- Position / Sub-role — read-only, only visible for Accounting staff -->
@@ -447,16 +446,6 @@ const profileInitial = computed(() => {
                                 <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
                                     {{ accountingTypeLabel ?? '—' }}
                                 </div>
-                                <p class="text-xs text-muted-foreground">Assigned by Admin — contact Admin to change.</p>
-                            </div>
-                        </div>
-
-                        <!-- Faculty / Department (editable free-text) -->
-                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div class="space-y-2">
-                                <Label for="faculty">Faculty / Room Assignment <span class="text-xs text-muted-foreground">(optional)</span></Label>
-                                <Input id="faculty" v-model="form.faculty" autocomplete="organization" placeholder="e.g., Room 201, Admin Building" />
-                                <InputError :message="form.errors.faculty" />
                             </div>
                         </div>
                     </section>
@@ -466,7 +455,7 @@ const profileInitial = computed(() => {
                     <!-- ═══════════════════════════════════════════════ -->
                     <!-- SECTION 4 — GUARDIAN & EMERGENCY CONTACT        -->
                     <!-- ═══════════════════════════════════════════════ -->
-                    <section class="space-y-4">
+                    <section v-if="!isStaff" class="space-y-4">
                         <HeadingSmall
                             title="Guardian & Emergency Contact"
                             description="Contact information in case of emergency"
