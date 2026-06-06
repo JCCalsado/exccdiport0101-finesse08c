@@ -3,74 +3,80 @@
 namespace App\Policies;
 
 use App\Models\User;
-use Illuminate\Auth\Access\HandlesAuthorization;
 
 class StudentFeePolicy
 {
-    use HandlesAuthorization;
+    /**
+     * Admin always bypasses. Must be first check in every method.
+     */
+    private function adminPass(User $user): bool
+    {
+        return $user->isAdmin() && $user->is_active;
+    }
 
     /**
-     * Determine if the user can view any student fees.
-     * Admin: view-only. Accounting: full access.
+     * View the assessment list.
+     * Disbursing Officer + Cashier (accounting staff who interact with fees).
+     * Bookkeeper does NOT see individual fee records — only financial reports.
      */
     public function viewAny(User $user): bool
     {
-        return in_array($this->getRoleValue($user), ['admin', 'accounting'], true);
+        if ($this->adminPass($user)) return true;
+        return $user->is_active
+            && $user->isAccounting()
+            && ($user->isDisbursingOfficer() || $user->isCashier());
     }
 
     /**
-     * Determine if the user can view student fee details.
-     * Admin: view-only. Accounting: full access. Students: own record only.
+     * View a single fee assessment record.
      */
-    public function view(User $user, User $student): bool
+    public function view(User $user): bool
     {
-        $role = $this->getRoleValue($user);
-
-        if (in_array($role, ['admin', 'accounting'], true)) {
-            return true;
-        }
-
-        return $user->id === $student->id;
+        if ($this->adminPass($user)) return true;
+        return $user->is_active
+            && $user->isAccounting()
+            && ($user->isDisbursingOfficer() || $user->isCashier());
     }
 
     /**
-     * Only accounting can create student fee assessments.
-     * Admin is view-only.
+     * Create a new fee assessment.
+     * Disbursing Officer only.
      */
     public function create(User $user): bool
     {
-        return $this->getRoleValue($user) === 'accounting';
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
     }
 
     /**
-     * Only accounting can update student fee assessments.
-     * Admin is view-only.
+     * Update an existing fee assessment.
+     * Disbursing Officer only.
      */
-    public function update(User $user, User $student): bool
+    public function update(User $user): bool
     {
-        return $this->getRoleValue($user) === 'accounting';
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
     }
 
     /**
-     * Only accounting can record payments.
-     * Admin is view-only.
+     * Delete a fee assessment.
+     * Disbursing Officer only.
+     */
+    public function delete(User $user): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
+    }
+
+    /**
+     * Record a payment against an assessment.
+     * Cashier + Disbursing Officer.
      */
     public function recordPayment(User $user): bool
     {
-        return $this->getRoleValue($user) === 'accounting';
-    }
-
-    /**
-     * Helper: normalize role to string regardless of enum or string storage.
-     */
-    private function getRoleValue(User $user): string
-    {
-        $role = $user->role;
-
-        if (is_object($role)) {
-            return $role->value ?? (string) $role;
-        }
-
-        return (string) $role;
+        if ($this->adminPass($user)) return true;
+        return $user->is_active
+            && $user->isAccounting()
+            && ($user->isCashier() || $user->isDisbursingOfficer());
     }
 }

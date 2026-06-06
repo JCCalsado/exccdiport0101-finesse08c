@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Enums\AccountingTypeEnum;
+use App\Enums\UserRoleEnum;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use App\Enums\UserRoleEnum;
 
 class User extends Authenticatable
 {
@@ -44,6 +45,7 @@ class User extends Authenticatable
         'faculty',
         'status',
         'role',
+        'accounting_type',  // Only populated when role = 'accounting'
         'is_active',
         'permissions',
         'department',
@@ -79,6 +81,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password'          => 'hashed',
             'role'              => UserRoleEnum::class,
+            'accounting_type'   => AccountingTypeEnum::class,
             'birthday'          => 'date',
             'terms_accepted_at' => 'datetime',
             'permissions'       => 'json',
@@ -100,19 +103,11 @@ class User extends Authenticatable
         return $this->hasOne(Account::class);
     }
 
-    /**
-     * All assessments belonging to this user.
-     * student_assessments.user_id is a direct FK to users.id.
-     */
     public function assessments(): HasMany
     {
         return $this->hasMany(StudentAssessment::class, 'user_id');
     }
 
-    /**
-     * The single most recent active assessment.
-     * Use this for display; use assessments() for querying across all.
-     */
     public function latestAssessment(): HasOne
     {
         return $this->hasOne(StudentAssessment::class, 'user_id')
@@ -137,22 +132,13 @@ class User extends Authenticatable
 
     // ========== ACCESSORS ==========
 
-    /**
-     * Computed middle initial.
-     *
-     * Priority: derive from middle_name (full) → fall back to stored middle_initial.
-     * This means records created before this migration continue to work, while
-     * records created/updated after get the correct initial from the full name.
-     */
     public function getMiddleInitialAttribute(): ?string
     {
-        // Check the raw DB value for middle_name to avoid infinite recursion
         $middleName = $this->attributes['middle_name'] ?? null;
         if ($middleName) {
             return mb_strtoupper(mb_substr($middleName, 0, 1));
         }
 
-        // Fall back to the stored column for legacy records
         return $this->attributes['middle_initial'] ?? null;
     }
 
@@ -190,12 +176,35 @@ class User extends Authenticatable
         return $query->where('role', UserRoleEnum::ACCOUNTING->value);
     }
 
+    public function scopeRegistrars($query)
+    {
+        return $query->where('role', UserRoleEnum::REGISTRAR->value);
+    }
+
+    public function scopeDisbursingOfficers($query)
+    {
+        return $query->where('role', UserRoleEnum::ACCOUNTING->value)
+                     ->where('accounting_type', AccountingTypeEnum::DISBURSING_OFFICER->value);
+    }
+
+    public function scopeCashiers($query)
+    {
+        return $query->where('role', UserRoleEnum::ACCOUNTING->value)
+                     ->where('accounting_type', AccountingTypeEnum::CASHIER->value);
+    }
+
+    public function scopeBookkeepers($query)
+    {
+        return $query->where('role', UserRoleEnum::ACCOUNTING->value)
+                     ->where('accounting_type', AccountingTypeEnum::BOOKKEEPER->value);
+    }
+
     public function scopeTermsAccepted($query)
     {
         return $query->whereNotNull('terms_accepted_at');
     }
 
-    // ========== HELPERS ==========
+    // ========== ROLE HELPERS ==========
 
     public function isAdmin(): bool
     {
@@ -207,6 +216,43 @@ class User extends Authenticatable
         return $this->role === UserRoleEnum::ACCOUNTING;
     }
 
+    public function isRegistrar(): bool
+    {
+        return $this->role === UserRoleEnum::REGISTRAR;
+    }
+
+    public function isStudent(): bool
+    {
+        return $this->role === UserRoleEnum::STUDENT;
+    }
+
+    // ========== ACCOUNTING SUB-ROLE HELPERS ==========
+
+    public function isDisbursingOfficer(): bool
+    {
+        return $this->isAccounting()
+            && $this->accounting_type === AccountingTypeEnum::DISBURSING_OFFICER;
+    }
+
+    public function isCashier(): bool
+    {
+        return $this->isAccounting()
+            && $this->accounting_type === AccountingTypeEnum::CASHIER;
+    }
+
+    public function isBookkeeper(): bool
+    {
+        return $this->isAccounting()
+            && $this->accounting_type === AccountingTypeEnum::BOOKKEEPER;
+    }
+
+    public function isAccountingType(AccountingTypeEnum $type): bool
+    {
+        return $this->isAccounting() && $this->accounting_type === $type;
+    }
+
+    // ========== GENERAL HELPERS ==========
+
     public function hasAcceptedTerms(): bool
     {
         return $this->terms_accepted_at !== null;
@@ -217,6 +263,10 @@ class User extends Authenticatable
         $this->forceFill(['terms_accepted_at' => now()])->save();
     }
 
+    /**
+     * Permission check. Admin bypasses all restrictions.
+     * Sub-role permissions are enforced at the Policy layer, not here.
+     */
     public function hasPermission(string $permission): bool
     {
         if (! $this->is_active) {
@@ -286,7 +336,8 @@ class User extends Authenticatable
             'middle_initial' => 'nullable|string|max:1',
             'email'          => "required|email|{$uniqueEmail}",
             'password'       => $userId ? 'nullable|min:8|confirmed' : 'required|min:8|confirmed',
-            'department'     => 'required|in:Administrator,Accounting',
+            'department'     => 'required|in:Administrator,Accounting,Registrar',
+            'accounting_type' => 'required_if:department,Accounting|nullable|in:cashier,bookkeeper,disbursing_officer',
             'is_active'      => 'boolean',
         ];
     }

@@ -7,66 +7,49 @@ use App\Models\WorkflowApproval;
 
 class WorkflowApprovalPolicy
 {
-    public function view(User $user, WorkflowApproval $approval): bool
+    private function adminPass(User $user): bool
     {
-        // Direct assignee can always view
-        if ($approval->approver_id === $user->id) {
-            return true;
-        }
-
-        // Any accounting user can view accounting-step approvals.
-        // Admin is excluded by design — only accounting processes approvals.
-        if ($user->role->value === 'accounting') {
-            $stepDef = $this->getStepDefinition($approval);
-            if ($stepDef && ($stepDef['approver_role'] ?? null) === 'accounting') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public function approve(User $user, WorkflowApproval $approval): bool
-    {
-        if ($approval->status !== 'pending') {
-            return false;
-        }
-
-        // Direct assignee
-        if ($approval->approver_id === $user->id) {
-            return true;
-        }
-
-        // Any accounting user may approve steps where approver_role = 'accounting'.
-        // This covers cases where the specific user ID was not yet assigned when
-        // the WorkflowApproval record was originally created.
-        // Admin is excluded by design.
-        if ($user->role->value === 'accounting') {
-            $stepDef = $this->getStepDefinition($approval);
-            if ($stepDef && ($stepDef['approver_role'] ?? null) === 'accounting') {
-                return true;
-            }
-        }
-
-        return false;
+        return $user->isAdmin() && $user->is_active;
     }
 
     /**
-     * Look up the workflow step definition for this approval.
+     * View the payment approval queue.
+     * Disbursing Officer + Admin.
+     *
+     * Cashier records payments but does NOT approve them.
+     * Payment Approval = verifying bank transfer authenticity — a financial
+     * authority decision that belongs to the Disbursing Officer.
      */
-    private function getStepDefinition(WorkflowApproval $approval): ?array
+    public function viewAny(User $user): bool
     {
-        $workflow = $approval->workflowInstance?->workflow;
-        if (!$workflow) {
-            return null;
-        }
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
+    }
 
-        foreach ($workflow->steps as $step) {
-            if ($step['name'] === $approval->step_name) {
-                return $step;
-            }
-        }
+    /**
+     * View a single approval record.
+     */
+    public function view(User $user, WorkflowApproval $approval): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
+    }
 
-        return null;
+    /**
+     * Approve a payment (mark bank transfer as verified/confirmed).
+     */
+    public function approve(User $user, WorkflowApproval $approval): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
+    }
+
+    /**
+     * Reject a payment (mark as invalid/mismatch).
+     */
+    public function reject(User $user, WorkflowApproval $approval): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
     }
 }

@@ -27,15 +27,49 @@ use Inertia\Response;
 class RegistrationApprovalController extends Controller
 {
     /**
-     * List all registrations with filters.
+     * ─────────────────────────────────────────────────────────────────────────
+     * FINANCE STAGE (Disbursing Officer)
+     *
+     * This controller handles the second stage of the two-stage registration
+     * workflow. Records arrive here ONLY after the Registrar has cleared them
+     * academically (status = registrar_cleared).
+     *
+     * The Registrar stage is handled by RegistrarController.
+     * ─────────────────────────────────────────────────────────────────────────
+     */
+
+    /**
+     * List registrations in the Finance queue.
+     *
+     * Finance queue = registrar_cleared + needs_revision (revision_stage = 'finance').
+     * Admin sees all statuses via the 'all' filter.
      */
     public function index(Request $request): Response
     {
-        $status = $request->get('status', 'pending');
-        $search = $request->get('search');
+        $this->authorize('viewFinanceQueue', StudentRegistration::class);
 
-        $registrations = StudentRegistration::query()
-            ->when($status !== 'all', fn($q) => $q->where('status', $status))
+        $status = $request->get('status', 'registrar_cleared');
+        $search = $request->get('search');
+        $user   = $request->user();
+
+        $query = StudentRegistration::query()
+            ->when($status === 'registrar_cleared', fn($q) =>
+                $q->where('status', 'registrar_cleared')
+            )
+            ->when($status === 'needs_revision', fn($q) =>
+                $q->where('status', 'needs_revision')->where('revision_stage', 'finance')
+            )
+            ->when($status === 'approved', fn($q) =>
+                $q->where('status', 'approved')
+            )
+            ->when($status === 'rejected', fn($q) =>
+                $q->where('status', 'rejected')
+            )
+            ->when($status === 'all', fn($q) =>
+                $q->whereIn('status', [
+                    'registrar_cleared', 'approved', 'rejected', 'needs_revision',
+                ])
+            )
             ->when($search, function ($q, $s) {
                 $q->where(function ($inner) use ($s) {
                     $inner->where('last_name', 'like', "%{$s}%")
@@ -45,32 +79,38 @@ class RegistrationApprovalController extends Controller
                           ->orWhere('contact_number', 'like', "%{$s}%");
                 });
             })
-            ->with('reviewer:id,first_name,last_name')
+            ->with(['reviewer:id,first_name,last_name', 'registrarReviewer:id,first_name,last_name'])
             ->orderBy('submitted_at', 'desc')
             ->paginate(20)
             ->withQueryString();
 
         $counts = [
-            'pending'        => StudentRegistration::where('status', 'pending')->count(),
-            'needs_revision' => StudentRegistration::where('status', 'needs_revision')->count(),
-            'approved'       => StudentRegistration::where('status', 'approved')->count(),
-            'rejected'       => StudentRegistration::where('status', 'rejected')->count(),
-            'all'            => StudentRegistration::count(),
+            'registrar_cleared' => StudentRegistration::where('status', 'registrar_cleared')->count(),
+            'needs_revision'    => StudentRegistration::where('status', 'needs_revision')
+                                    ->where('revision_stage', 'finance')->count(),
+            'approved'          => StudentRegistration::where('status', 'approved')->count(),
+            'rejected'          => StudentRegistration::where('status', 'rejected')->count(),
         ];
 
         return Inertia::render('Accounting/RegistrationApprovals/Index', [
-            'registrations' => $registrations->through(fn($r) => $this->serializeForList($r)),
+            'registrations' => $query->through(fn($r) => $this->serializeForList($r)),
             'counts'        => $counts,
             'filters'       => ['status' => $status, 'search' => $search],
         ]);
     }
 
     /**
-     * Show the full detail of a registration for review.
+     * Show the full detail of a registration for Finance review.
+     * Includes Registrar stage info for context.
      */
     public function show(StudentRegistration $registration): Response
     {
-        $registration->load('reviewer:id,first_name,last_name');
+        $this->authorize('viewFinanceQueue', StudentRegistration::class);
+
+        $registration->load([
+            'reviewer:id,first_name,last_name',
+            'registrarReviewer:id,first_name,last_name',
+        ]);
 
         $duplicates   = $registration->detectDuplicates();
         $existingUser = $registration->findMatchingUser();
@@ -103,27 +143,15 @@ class RegistrationApprovalController extends Controller
     }
 
     /**
-     * Approve a registration.
+     * Finance-stage approval.
      *
      * Creates: User → Student → Account.
-     * Sends approval email with login instructions.
-     *
-     * PASSWORD LOGIC:
-     * Reads password_hash from the student_registrations row (stored at submission
-     * time by RegisteredUserController::store()). If the column is null for any
-     * reason (legacy row pre-migration, or manually nulled), a random password is
-     * generated and the student must use "Forgot Password" to regain access.
-     * The password_hash column is nulled out after the User is created — it has
-     * no business living in student_registrations beyond that point.
-     *
-     * DATA COMPLETENESS:
-     * ALL fields collected at registration are mapped to the User record here.
-     * Previously: gender, civil_status, suffix, address_zip, guardian_name,
-     * guardian_contact, emergency_contact were silently dropped. Fixed.
+     * Precondition: registration must be in Finance queue (registrar_cleared).
      */
     public function approve(StudentRegistration $registration): RedirectResponse
     {
-        $this->ensureActionable($registration);
+        $this->authorize('actAsFinance', $registration);
+        $this->ensureFinanceActionable($registration);
 
         if ($registration->findMatchingUser()) {
             return back()->with('flash.error', 'A user with this email already exists. Cannot approve duplicate.');
@@ -131,95 +159,67 @@ class RegistrationApprovalController extends Controller
 
         DB::beginTransaction();
         try {
-            // ── 1. Generate unique account ID ─────────────────────────
-            $accountId = $this->generateUniqueAccountId();
+            $accountId    = $this->generateUniqueAccountId();
+            $passwordHash = $registration->password_hash ?? Hash::make(str()->random(32));
+            $usedFallback = ! $registration->password_hash;
 
-            // ── 2. Resolve password hash ──────────────────────────────
-            // Primary source: password_hash column (set at submission time).
-            // Fallback: random password — student must use Forgot Password.
-            $passwordHash = $registration->password_hash
-                ?? Hash::make(str()->random(32));
-
-            $usedFallbackPassword = ! $registration->password_hash;
-
-            // ── 3. Create User record — ALL registration fields mapped ─
             $user = User::create([
-                // Identity
-                'last_name'         => $registration->last_name,
-                'first_name'        => $registration->first_name,
-                'middle_name'       => $registration->middle_name,
-                // middle_initial is now a computed accessor from middle_name;
-                // we write the raw column here only for legacy compatibility
-                // with code that still reads the column directly.
-                'middle_initial'    => $registration->middle_name
-                                        ? mb_strtoupper(mb_substr($registration->middle_name, 0, 1))
-                                        : null,
-                'suffix'            => $registration->suffix,
-                'gender'            => $registration->gender,
-                'civil_status'      => $registration->civil_status,
-
-                // Auth
-                'email'             => $registration->email,
-                'password'          => $passwordHash,
-                'email_verified_at' => now(), // Accounting has verified identity
-
-                // Contact
-                'phone'             => $registration->contact_number,
-                'birthday'          => $registration->birthdate,
-
-                // Address — all decomposed fields
+                'last_name'                 => $registration->last_name,
+                'first_name'                => $registration->first_name,
+                'middle_name'               => $registration->middle_name,
+                'middle_initial'            => $registration->middle_name
+                                                ? mb_strtoupper(mb_substr($registration->middle_name, 0, 1))
+                                                : null,
+                'suffix'                    => $registration->suffix,
+                'gender'                    => $registration->gender,
+                'civil_status'              => $registration->civil_status,
+                'email'                     => $registration->email,
+                'password'                  => $passwordHash,
+                'email_verified_at'         => now(),
+                'phone'                     => $registration->contact_number,
+                'birthday'                  => $registration->birthdate,
                 'address_house_lot_unit'    => $registration->address_house,
                 'address_street_name'       => $registration->address_street,
                 'address_barangay'          => $registration->address_barangay,
                 'address_municipality_city' => $registration->address_city,
                 'address_province'          => $registration->address_province,
                 'address_zip'               => $registration->address_zip,
-
-                // Guardian / Emergency
-                'guardian_name'     => $registration->guardian_name,
-                'guardian_contact'  => $registration->guardian_contact,
-                'emergency_contact' => $registration->emergency_contact,
-
-                // Academic
-                'course'            => $registration->course,
-                'year_level'        => $registration->year_level,
-                'account_id'        => $accountId,
-                'is_irregular'      => in_array($registration->student_type, ['irregular'], true),
-
-                // System
-                'status'            => User::STATUS_ACTIVE,
-                'role'              => UserRoleEnum::STUDENT->value,
-                'is_active'         => true,
-                'created_by'        => auth()->id(),
+                'guardian_name'             => $registration->guardian_name,
+                'guardian_contact'          => $registration->guardian_contact,
+                'emergency_contact'         => $registration->emergency_contact,
+                'course'                    => $registration->course,
+                'year_level'                => $registration->year_level,
+                'account_id'                => $accountId,
+                'is_irregular'              => in_array($registration->student_type, ['irregular'], true),
+                'status'                    => User::STATUS_ACTIVE,
+                'role'                      => UserRoleEnum::STUDENT->value,
+                'is_active'                 => true,
+                'created_by'                => auth()->id(),
             ]);
 
-            // ── 4. Create Student record ──────────────────────────────
             Student::create([
                 'user_id'           => $user->id,
                 'student_id'        => $accountId,
                 'enrollment_status' => 'active',
             ]);
 
-            // ── 5. Create Account record ──────────────────────────────
             Account::create([
                 'user_id'        => $user->id,
                 'account_number' => Account::generateAccountNumber(),
                 'balance'        => 0,
             ]);
 
-            // ── 6. Update registration record ─────────────────────────
-            // Null out password_hash — the User record now owns the credential.
             $registration->update([
                 'status'        => RegistrationStatusEnum::APPROVED->value,
                 'reviewed_by'   => auth()->id(),
                 'reviewed_at'   => now(),
+                'revision_stage' => null,
                 'user_id'       => $user->id,
                 'password_hash' => null,
             ]);
 
             DB::commit();
 
-            // ── 7. Send approval notification ─────────────────────────
             try {
                 Notification::route('mail', $registration->email)
                     ->notify(new RegistrationApproved($registration, $user));
@@ -230,12 +230,10 @@ class RegistrationApprovalController extends Controller
                 ]);
             }
 
-            // ── 8. Warn if fallback password was used ─────────────────
-            if ($usedFallbackPassword) {
-                Log::warning('Approval used fallback random password — student must reset via Forgot Password', [
+            if ($usedFallback) {
+                Log::warning('Finance approval used fallback random password — student must reset', [
                     'registration_id' => $registration->id,
                     'user_id'         => $user->id,
-                    'email'           => $user->email,
                 ]);
             }
 
@@ -245,7 +243,7 @@ class RegistrationApprovalController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Registration approval failed', [
+            Log::error('Finance registration approval failed', [
                 'registration_id' => $registration->id,
                 'error'           => $e->getMessage(),
                 'trace'           => $e->getTraceAsString(),
@@ -256,19 +254,21 @@ class RegistrationApprovalController extends Controller
     }
 
     /**
-     * Reject a registration.
+     * Finance-stage rejection.
      */
     public function reject(
         RejectRegistrationRequest $request,
         StudentRegistration $registration
     ): RedirectResponse {
-        $this->ensureActionable($registration);
+        $this->authorize('actAsFinance', $registration);
+        $this->ensureFinanceActionable($registration);
 
         $registration->update([
             'status'           => RegistrationStatusEnum::REJECTED->value,
             'rejection_reason' => $request->rejection_reason,
             'reviewed_by'      => auth()->id(),
             'reviewed_at'      => now(),
+            'revision_stage'   => null,
         ]);
 
         try {
@@ -287,19 +287,22 @@ class RegistrationApprovalController extends Controller
     }
 
     /**
-     * Request revision from the applicant.
+     * Finance-stage revision request.
+     * Sets revision_stage = 'finance' so the resubmission returns to this queue.
      */
     public function requestRevision(
         RequestRevisionRequest $request,
         StudentRegistration $registration
     ): RedirectResponse {
-        $this->ensureActionable($registration);
+        $this->authorize('actAsFinance', $registration);
+        $this->ensureFinanceActionable($registration);
 
         $registration->update([
-            'status'         => RegistrationStatusEnum::NEEDS_REVISION->value,
-            'revision_notes' => $request->revision_notes,
-            'reviewed_by'    => auth()->id(),
-            'reviewed_at'    => now(),
+            'status'          => RegistrationStatusEnum::NEEDS_REVISION->value,
+            'revision_notes'  => $request->revision_notes,
+            'reviewed_by'     => auth()->id(),
+            'reviewed_at'     => now(),
+            'revision_stage'  => 'finance',
         ]);
 
         try {
@@ -319,7 +322,6 @@ class RegistrationApprovalController extends Controller
 
     /**
      * Serve a registration document securely.
-     * Only accounting and admin can access.
      */
     public function serveDocument(StudentRegistration $registration, string $type): mixed
     {
@@ -336,15 +338,32 @@ class RegistrationApprovalController extends Controller
         return Storage::disk('private')->response($path);
     }
 
-    // ── Private Helpers ───────────────────────────────────────────────────────
+    // ── Private Helpers ────────────────────────────────────────────────────
 
-    private function ensureActionable(StudentRegistration $registration): void
+    /**
+     * Abort if the registration is not in the Finance-stage queue.
+     */
+    private function ensureFinanceActionable(StudentRegistration $registration): void
     {
         if ($registration->isApproved()) {
-            abort(422, 'This registration has already been approved.');
+            abort(422, 'This registration has already been approved and enrolled.');
         }
+
         if ($registration->isRejected()) {
-            abort(422, 'This registration has already been rejected. Rejected registrations cannot be re-processed.');
+            abort(422, 'This registration has already been rejected at the Finance stage.');
+        }
+
+        if ($registration->isRejectedByRegistrar()) {
+            abort(422, 'This registration was rejected by the Registrar and cannot be processed by Finance.');
+        }
+
+        if ($registration->isPending()) {
+            abort(422, 'This registration has not yet been reviewed by the Registrar. It cannot be processed at Finance.');
+        }
+
+        // needs_revision is only Finance-actionable when revision_stage = 'finance'
+        if ($registration->needsRevision() && $registration->revision_stage !== 'finance') {
+            abort(422, 'This revision request belongs to the Registrar stage queue, not Finance.');
         }
     }
 
@@ -376,72 +395,88 @@ class RegistrationApprovalController extends Controller
         return $accountId;
     }
 
-    // ── Serializers ───────────────────────────────────────────────────────────
+    // ── Serializers ────────────────────────────────────────────────────────
 
     private function serializeForList(StudentRegistration $r): array
     {
         return [
-            'id'             => $r->id,
-            'tracking_token' => $r->tracking_token,
-            'full_name'      => $r->full_name,
-            'email'          => $r->email,
-            'contact_number' => $r->contact_number,
-            'course'         => $r->course,
-            'year_level'     => $r->year_level,
-            'student_type'   => $r->student_type,
-            'status'         => $r->status->value,
-            'status_label'   => $r->status->label(),
-            'status_color'   => $r->status->color(),
-            'submitted_at'   => $r->submitted_at?->format('M d, Y g:i A'),
-            'reviewer_name'  => $r->reviewer
+            'id'                       => $r->id,
+            'tracking_token'           => $r->tracking_token,
+            'full_name'                => $r->full_name,
+            'email'                    => $r->email,
+            'contact_number'           => $r->contact_number,
+            'course'                   => $r->course,
+            'year_level'               => $r->year_level,
+            'student_type'             => $r->student_type,
+            'status'                   => $r->status->value,
+            'status_label'             => $r->status->label(),
+            'status_color'             => $r->status->color(),
+            'submitted_at'             => $r->submitted_at?->format('M d, Y g:i A'),
+            'reviewer_name'            => $r->reviewer
                 ? $r->reviewer->first_name . ' ' . $r->reviewer->last_name
                 : null,
+            'registrar_reviewer_name'  => $r->registrarReviewer
+                ? $r->registrarReviewer->first_name . ' ' . $r->registrarReviewer->last_name
+                : null,
+            'registrar_reviewed_at'    => $r->registrar_reviewed_at?->format('M d, Y'),
         ];
     }
 
     private function serializeForDetail(StudentRegistration $r): array
     {
         return [
-            'id'                  => $r->id,
-            'tracking_token'      => $r->tracking_token,
-            'full_name'           => $r->full_name,
-            'full_address'        => $r->full_address,
-            'last_name'           => $r->last_name,
-            'first_name'          => $r->first_name,
-            'middle_name'         => $r->middle_name,
-            'suffix'              => $r->suffix,
-            'gender'              => $r->gender,
-            'birthdate'           => $r->birthdate?->format('F d, Y'),
-            'civil_status'        => $r->civil_status,
-            'contact_number'      => $r->contact_number,
-            'email'               => $r->email,
-            'address_house'       => $r->address_house,
-            'address_street'      => $r->address_street,
-            'address_barangay'    => $r->address_barangay,
-            'address_city'        => $r->address_city,
-            'address_province'    => $r->address_province,
-            'address_zip'         => $r->address_zip,
-            'existing_student_id' => $r->existing_student_id,
-            'course'              => $r->course,
-            'year_level'          => $r->year_level,
-            'semester'            => $r->semester,
-            'school_year'         => $r->school_year,
-            'student_type'        => $r->student_type,
-            'guardian_name'       => $r->guardian_name,
-            'guardian_contact'    => $r->guardian_contact,
-            'emergency_contact'   => $r->emergency_contact,
-            'has_valid_id'        => ! empty($r->valid_id_path),
-            'has_proof'           => ! empty($r->proof_of_enrollment_path),
-            'status'              => $r->status->value,
-            'status_label'        => $r->status->label(),
-            'status_color'        => $r->status->color(),
-            'rejection_reason'    => $r->rejection_reason,
-            'revision_notes'      => $r->revision_notes,
-            'submitted_at'        => $r->submitted_at?->format('F d, Y g:i A'),
-            'reviewed_at'         => $r->reviewed_at?->format('F d, Y g:i A'),
-            'reviewer_name'       => $r->reviewer
+            'id'                          => $r->id,
+            'tracking_token'              => $r->tracking_token,
+            'full_name'                   => $r->full_name,
+            'full_address'                => $r->full_address,
+            'last_name'                   => $r->last_name,
+            'first_name'                  => $r->first_name,
+            'middle_name'                 => $r->middle_name,
+            'suffix'                      => $r->suffix,
+            'gender'                      => $r->gender,
+            'birthdate'                   => $r->birthdate?->format('F d, Y'),
+            'civil_status'                => $r->civil_status,
+            'contact_number'              => $r->contact_number,
+            'email'                       => $r->email,
+            'address_house'               => $r->address_house,
+            'address_street'              => $r->address_street,
+            'address_barangay'            => $r->address_barangay,
+            'address_city'                => $r->address_city,
+            'address_province'            => $r->address_province,
+            'address_zip'                 => $r->address_zip,
+            'existing_student_id'         => $r->existing_student_id,
+            'course'                      => $r->course,
+            'year_level'                  => $r->year_level,
+            'semester'                    => $r->semester,
+            'school_year'                 => $r->school_year,
+            'student_type'                => $r->student_type,
+            'guardian_name'               => $r->guardian_name,
+            'guardian_contact'            => $r->guardian_contact,
+            'emergency_contact'           => $r->emergency_contact,
+            'has_valid_id'                => ! empty($r->valid_id_path),
+            'has_proof'                   => ! empty($r->proof_of_enrollment_path),
+            // ── Current status ──────────────────────────────────────────
+            'status'                      => $r->status->value,
+            'status_label'                => $r->status->label(),
+            'status_color'                => $r->status->color(),
+            'revision_stage'              => $r->revision_stage,
+            // ── Finance stage (this controller's domain) ────────────────
+            'rejection_reason'            => $r->rejection_reason,
+            'revision_notes'              => $r->revision_notes,
+            'reviewed_at'                 => $r->reviewed_at?->format('F d, Y g:i A'),
+            'reviewer_name'               => $r->reviewer
                 ? $r->reviewer->first_name . ' ' . $r->reviewer->last_name
                 : null,
+            // ── Registrar stage (context only — no actions here) ────────
+            'registrar_reviewed_at'       => $r->registrar_reviewed_at?->format('F d, Y g:i A'),
+            'registrar_reviewer_name'     => $r->registrarReviewer
+                ? $r->registrarReviewer->first_name . ' ' . $r->registrarReviewer->last_name
+                : null,
+            'registrar_rejection_reason'  => $r->registrar_rejection_reason,
+            'registrar_revision_notes'    => $r->registrar_revision_notes,
+            // ──────────────────────────────────────────────────────────
+            'submitted_at'                => $r->submitted_at?->format('F d, Y g:i A'),
+            'is_finance_actionable'       => $r->isFinanceActionable(),
         ];
     }
 }

@@ -17,14 +17,13 @@ class AdminController extends Controller
     }
 
     /**
-     * List all admin and accounting staff.
-     * Admin has full management capability over Accounting users.
+     * List all admin, accounting, and registrar staff.
      */
     public function index(): Response
     {
         $this->authorize('viewAny', User::class);
 
-        $admins = User::whereIn('department', ['Administrator', 'Accounting'])
+        $admins = User::whereIn('department', ['Administrator', 'Accounting', 'Registrar'])
             ->with(['createdByUser', 'updatedByUser'])
             ->orderBy('created_at', 'desc')
             ->paginate(15);
@@ -32,7 +31,6 @@ class AdminController extends Controller
         return Inertia::render('Admin/Users/Index', [
             'admins'    => $admins,
             'stats'     => $this->adminService->getAdminStats(),
-            // Admin CAN manage — specifically they can create/edit/toggle Accounting users
             'canManage' => true,
         ]);
     }
@@ -44,19 +42,18 @@ class AdminController extends Controller
     {
         $this->authorize('view', $user);
 
-        if (! in_array($user->department, ['Administrator', 'Accounting'])) {
+        if (! in_array($user->department, ['Administrator', 'Accounting', 'Registrar'], true)) {
             abort(404);
         }
 
         return Inertia::render('Admin/Users/Show', [
             'admin'     => $user->load(['createdByUser', 'updatedByUser']),
-            // canManage is true only for Accounting department — enforced in the view
-            'canManage' => $user->department === 'Accounting',
+            'canManage' => in_array($user->department, ['Accounting', 'Registrar'], true),
         ]);
     }
 
     /**
-     * Show the create form — creates Accounting staff only.
+     * Show the create form — creates Accounting or Registrar staff.
      */
     public function create(): Response
     {
@@ -66,38 +63,44 @@ class AdminController extends Controller
     }
 
     /**
-     * Store a new Accounting staff user.
-     * Department is forced to 'Accounting' in the service layer
-     * to prevent Admin from creating other Admin accounts.
+     * Store a new Accounting or Registrar staff user.
+     *
+     * Admin may only create Accounting and Registrar users — never another
+     * Administrator account — via this form. The allowed departments are
+     * enforced here as a hard guard before reaching the service layer.
      */
     public function store(Request $request)
     {
         $this->authorize('create', User::class);
 
-        // Force department to Accounting — Admin cannot create Admin accounts
-        $data = array_merge($request->all(), ['department' => 'Accounting']);
+        $allowedDepartments = ['Accounting', 'Registrar'];
+        $requestedDept      = $request->input('department', 'Accounting');
+        $department         = in_array($requestedDept, $allowedDepartments, true)
+                              ? $requestedDept
+                              : 'Accounting';
+
+        $data = array_merge($request->all(), ['department' => $department]);
 
         try {
             $admin = $this->adminService->createAdmin($data, $request->user());
-            return redirect()->route('users.show', $admin->id)
-                ->with('success', 'Accounting staff member created successfully!');
+            return redirect()
+                ->route('users.show', $admin->id)
+                ->with('flash.success', "Staff member '{$admin->name}' created successfully.");
         } catch (\Illuminate\Validation\ValidationException $e) {
-            return back()->withErrors($e->errors());
+            return back()->withErrors($e->errors())->withInput();
         }
     }
 
     /**
-     * Show the edit form for an Accounting department user.
-     * Editing Administrator accounts is not permitted.
+     * Show the edit form — Accounting and Registrar staff only.
+     * Administrator accounts are immutable via this panel.
      */
     public function edit(User $user): Response
     {
         $this->authorize('update', $user);
 
-        // Only Accounting users are editable — policy already enforces this,
-        // but we double-guard here for clarity.
-        if ($user->department !== 'Accounting') {
-            abort(403, 'Administrator accounts cannot be edited.');
+        if (! in_array($user->department, ['Accounting', 'Registrar'], true)) {
+            abort(403, 'Administrator accounts cannot be edited via this panel.');
         }
 
         return Inertia::render('Admin/Users/Edit', [
@@ -106,25 +109,32 @@ class AdminController extends Controller
     }
 
     /**
-     * Update an Accounting department user.
+     * Update an Accounting or Registrar staff user.
      */
     public function update(Request $request, User $user)
     {
         $this->authorize('update', $user);
 
-        if ($user->department !== 'Accounting') {
-            abort(403, 'Administrator accounts cannot be edited.');
+        if (! in_array($user->department, ['Accounting', 'Registrar'], true)) {
+            abort(403, 'Administrator accounts cannot be edited via this panel.');
         }
 
-        // Prevent department from being changed to Administrator via the form
-        $data = array_merge($request->all(), ['department' => 'Accounting']);
+        // Prevent the department from being escalated to Administrator via the form.
+        $allowedDepartments = ['Accounting', 'Registrar'];
+        $requestedDept      = $request->input('department', $user->department);
+        $department         = in_array($requestedDept, $allowedDepartments, true)
+                              ? $requestedDept
+                              : $user->department;
+
+        $data = array_merge($request->all(), ['department' => $department]);
 
         try {
             $this->adminService->updateAdmin($user, $data, $request->user());
-            return redirect()->route('users.show', $user->id)
-                ->with('success', 'Staff member updated successfully!');
+            return redirect()
+                ->route('users.show', $user->id)
+                ->with('flash.success', 'Staff member updated successfully.');
         } catch (\Illuminate\Validation\ValidationException $e) {
-            return back()->withErrors($e->errors());
+            return back()->withErrors($e->errors())->withInput();
         }
     }
 
@@ -138,7 +148,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Deactivate an Accounting staff user.
+     * Deactivate an Accounting or Registrar staff user.
      */
     public function deactivate(Request $request, User $user)
     {
@@ -146,14 +156,14 @@ class AdminController extends Controller
 
         try {
             $this->adminService->deactivateAdmin($user, $request->user());
-            return back()->with('success', 'Staff member deactivated successfully!');
+            return back()->with('flash.success', 'Staff member deactivated.');
         } catch (\InvalidArgumentException $e) {
             abort(403, $e->getMessage());
         }
     }
 
     /**
-     * Reactivate an Accounting staff user.
+     * Reactivate an Accounting or Registrar staff user.
      */
     public function reactivate(Request $request, User $user)
     {
@@ -161,7 +171,7 @@ class AdminController extends Controller
 
         try {
             $this->adminService->reactivateAdmin($user);
-            return back()->with('success', 'Staff member reactivated successfully!');
+            return back()->with('flash.success', 'Staff member reactivated.');
         } catch (\InvalidArgumentException $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
         }

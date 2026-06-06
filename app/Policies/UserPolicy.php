@@ -7,99 +7,50 @@ use App\Models\User;
 class UserPolicy
 {
     /**
-     * Any active admin can view the user list.
+     * Admin can manage staff accounts across Accounting and Registrar departments.
+     * Admin cannot manage other Admin accounts via the staff panel.
      */
-    public function viewAny(User $user): bool
+    public function manageAdmins(User $user, User $model): bool
     {
-        return $user->isAdmin() && $user->is_active;
+        return $user->isAdmin()
+            && $user->is_active
+            && in_array($model->department, ['Accounting', 'Registrar'], true);
     }
 
-    /**
-     * Active admins can view any staff profile.
-     * Users can always view their own profile.
-     */
-    public function view(User $user, User $model): bool
-    {
-        if ($user->id === $model->id && $user->is_active) {
-            return true;
-        }
-
-        return $user->isAdmin() && $user->is_active;
-    }
-
-    /**
-     * Admin can create Accounting staff only.
-     * Creating additional Admin accounts is forbidden.
-     */
     public function create(User $user): bool
     {
         return $user->isAdmin() && $user->is_active;
     }
 
-    /**
-     * Admin can update Accounting department users only.
-     * Admin-to-Admin editing is blocked in the controller layer.
-     * Users may edit their own profile.
-     */
     public function update(User $user, User $model): bool
     {
-        // Self-edit always allowed
-        if ($user->id === $model->id && $user->is_active) {
-            return true;
+        // Admin managing their own account
+        if ($user->id === $model->id && $user->isAdmin()) {
+            return $user->is_active;
         }
 
-        // Admin may only edit Accounting department staff, not other Admins
-        if ($user->isAdmin() && $user->is_active && $model->department === 'Accounting') {
-            return true;
-        }
-
-        return false;
+        // Admin managing Accounting or Registrar staff
+        return $user->isAdmin()
+            && $user->is_active
+            && in_array($model->department, ['Accounting', 'Registrar'], true);
     }
 
-    /**
-     * Hard delete is never allowed — deactivate instead.
-     */
     public function delete(User $user, User $model): bool
     {
-        return false;
+        // Cannot delete self
+        if ($user->id === $model->id) return false;
+
+        return $user->isAdmin()
+            && $user->is_active
+            && in_array($model->department, ['Accounting', 'Registrar'], true);
     }
 
-    public function restore(User $user, User $model): bool
+    public function deactivate(User $user, User $model): bool
     {
-        return false;
-    }
+        if ($user->id === $model->id) return false;
 
-    public function forceDelete(User $user, User $model): bool
-    {
-        return false;
-    }
-
-    /**
-     * Admin can activate/deactivate Accounting users only.
-     * Cannot deactivate other Admins or themselves.
-     */
-    public function manageAdmins(User $user, User $model): bool
-    {
-        if (! $user->isAdmin() || ! $user->is_active) {
-            return false;
-        }
-
-        // Cannot deactivate yourself
-        if ($user->id === $model->id) {
-            return false;
-        }
-
-        // Can only manage Accounting department users
-        return $model->department === 'Accounting';
-    }
-
-    public function acceptTerms(User $user, User $model): bool
-    {
-        return $user->id === $model->id;
-    }
-
-    public function isAdmin(User $user): bool
-    {
-        return $user->isAdmin() && $user->is_active;
+        return $user->isAdmin()
+            && $user->is_active
+            && in_array($model->department, ['Accounting', 'Registrar'], true);
     }
 }

@@ -2,17 +2,24 @@
 
 namespace App\Providers;
 
+use App\Models\CurriculumPreset;
 use App\Models\Notification;
 use App\Models\Payment;
 use App\Models\Student;
 use App\Models\StudentPaymentTerm;
 use App\Models\StudentRegistration;
+use App\Models\Subject;
 use App\Models\User;
 use App\Models\WorkflowApproval;
+use App\Policies\CurriculumPresetPolicy;
+use App\Policies\FeeManagementPolicy;
+use App\Policies\FinancialReportPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PaymentPolicy;
+use App\Policies\StudentFeePolicy;
 use App\Policies\StudentPaymentTermPolicy;
 use App\Policies\StudentRegistrationPolicy;
+use App\Policies\SubjectPolicy;
 use App\Policies\UserPolicy;
 use App\Policies\WorkflowApprovalPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
@@ -27,6 +34,8 @@ class AuthServiceProvider extends ServiceProvider
         StudentPaymentTerm::class  => StudentPaymentTermPolicy::class,
         Payment::class             => PaymentPolicy::class,
         StudentRegistration::class => StudentRegistrationPolicy::class,
+        CurriculumPreset::class    => CurriculumPresetPolicy::class,
+        Subject::class             => SubjectPolicy::class,
     ];
 
     public function boot(): void

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useForm } from '@inertiajs/vue3';
+import { computed } from 'vue';
 
 interface Props {
     admin?: any;
@@ -15,14 +16,33 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const form = useForm({
-    last_name:             props.admin?.last_name ?? '',
-    first_name:            props.admin?.first_name ?? '',
-    middle_initial:        props.admin?.middle_initial ?? '',
-    email:                 props.admin?.email ?? '',
+    last_name:             props.admin?.last_name             ?? '',
+    first_name:            props.admin?.first_name            ?? '',
+    middle_initial:        props.admin?.middle_initial        ?? '',
+    email:                 props.admin?.email                 ?? '',
     password:              '',
     password_confirmation: '',
-    department:            'Accounting',
-    is_active:             props.admin?.is_active ?? true,
+    department:            props.admin?.department            ?? 'Accounting',
+    accounting_type:       props.admin?.accounting_type       ?? '',
+    is_active:             props.admin?.is_active             ?? true,
+});
+
+// Show accounting_type selector only when department = Accounting
+const isAccountingDept = computed(() => form.department === 'Accounting');
+
+// Clear accounting_type when switching away from Accounting
+const onDepartmentChange = () => {
+    if (form.department !== 'Accounting') {
+        form.accounting_type = '';
+    }
+};
+
+const submitLabel = computed(() => {
+    if (form.processing) return 'Saving…';
+    if (props.isEditing) return 'Update Staff Member';
+    return form.department === 'Registrar'
+        ? 'Create Registrar Staff'
+        : 'Create Accounting Staff';
 });
 
 const submit = () => {
@@ -33,9 +53,7 @@ const submit = () => {
     }
 };
 
-const goBack = () => {
-    history.back();
-};
+const goBack = () => { history.back(); };
 </script>
 
 <template>
@@ -71,36 +89,74 @@ const goBack = () => {
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
                 <Label for="password">
-                    {{ isEditing ? 'Password (leave blank to keep current)' : 'Password *' }}
+                    {{ isEditing ? 'New Password (leave blank to keep)' : 'Password *' }}
                 </Label>
-                <Input id="password" v-model="form.password" type="password" :required="!isEditing" />
+                <Input id="password" v-model="form.password" type="password" :required="!isEditing" autocomplete="new-password" />
                 <InputError :message="form.errors.password" />
             </div>
             <div>
                 <Label for="password_confirmation">
                     Confirm Password{{ isEditing ? '' : ' *' }}
                 </Label>
-                <Input id="password_confirmation" v-model="form.password_confirmation" type="password" :required="!isEditing" />
+                <Input id="password_confirmation" v-model="form.password_confirmation" type="password" :required="!isEditing" autocomplete="new-password" />
                 <InputError :message="form.errors.password_confirmation" />
             </div>
         </div>
 
-        <!-- Department — fixed to Accounting, hidden input only -->
-        <input type="hidden" v-model="form.department" />
-
-        <!-- Department display (read-only badge) -->
-        <div>
-            <Label>Department</Label>
-            <div class="mt-1 inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
-                Accounting
+        <!-- Department -->
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+                <Label for="department">Department *</Label>
+                <select
+                    id="department"
+                    v-model="form.department"
+                    @change="onDepartmentChange"
+                    class="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    required
+                >
+                    <option value="Accounting">Accounting</option>
+                    <option value="Registrar">Registrar</option>
+                </select>
+                <InputError :message="form.errors.department" />
+                <p class="mt-1 text-xs text-muted-foreground">
+                    Administrator accounts cannot be created via this form.
+                </p>
             </div>
-            <InputError :message="form.errors.department" />
+
+            <!-- Accounting sub-role — only shown when department = Accounting -->
+            <div v-if="isAccountingDept">
+                <Label for="accounting_type">Accounting Role *</Label>
+                <select
+                    id="accounting_type"
+                    v-model="form.accounting_type"
+                    class="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    required
+                >
+                    <option value="" disabled>Select a role…</option>
+                    <option value="cashier">Cashier — records over-the-counter payments</option>
+                    <option value="bookkeeper">Bookkeeper — read-only financial reports</option>
+                    <option value="disbursing_officer">Disbursing Officer — full accounting access</option>
+                </select>
+                <InputError :message="form.errors.accounting_type" />
+            </div>
+
+            <!-- Registrar info badge -->
+            <div v-else class="flex items-end">
+                <div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                    <p class="font-semibold">Registrar</p>
+                    <p class="text-xs mt-0.5 text-blue-600">Manages academic clearance, curriculum presets, subjects, and student notifications.</p>
+                </div>
+            </div>
         </div>
 
         <!-- Active Status -->
         <div class="w-48">
             <Label for="is_active">Active Status</Label>
-            <select id="is_active" v-model="form.is_active" class="w-full rounded-lg border px-3 py-2">
+            <select
+                id="is_active"
+                v-model="form.is_active"
+                class="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
                 <option :value="true">Active</option>
                 <option :value="false">Inactive</option>
             </select>
@@ -108,9 +164,9 @@ const goBack = () => {
         </div>
 
         <!-- Actions -->
-        <div class="flex space-x-4 pt-4">
+        <div class="flex items-center gap-3 pt-2">
             <Button type="submit" :disabled="form.processing">
-                {{ form.processing ? 'Saving...' : isEditing ? 'Update Staff Member' : 'Create Accounting Staff' }}
+                {{ submitLabel }}
             </Button>
             <Button type="button" variant="outline" @click="goBack">Cancel</Button>
         </div>

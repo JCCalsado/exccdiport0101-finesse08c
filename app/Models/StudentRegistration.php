@@ -37,36 +37,52 @@ class StudentRegistration extends Model
         'emergency_contact',
         'valid_id_path',
         'proof_of_enrollment_path',
-        'password_hash',   // bcrypt hash — stored at submission, nulled after User creation
+        'password_hash',
         'status',
+        // ── Finance stage columns (existing, kept as-is) ──────────────────
         'rejection_reason',
         'revision_notes',
         'reviewed_by',
         'reviewed_at',
+        // ── Registrar stage columns (new) ─────────────────────────────────
+        'registrar_reviewed_by',
+        'registrar_reviewed_at',
+        'registrar_rejection_reason',
+        'registrar_revision_notes',
+        'revision_stage',
+        // ──────────────────────────────────────────────────────────────────
         'submitted_at',
         'user_id',
     ];
 
-    /**
-     * password_hash must never be exposed in JSON responses or API output.
-     * It is a transient credential store, not a display field.
-     */
     protected $hidden = [
         'password_hash',
     ];
 
     protected $casts = [
-        'birthdate'    => 'date',
-        'reviewed_at'  => 'datetime',
-        'submitted_at' => 'datetime',
-        'status'       => RegistrationStatusEnum::class,
+        'birthdate'              => 'date',
+        'reviewed_at'            => 'datetime',
+        'registrar_reviewed_at'  => 'datetime',
+        'submitted_at'           => 'datetime',
+        'status'                 => RegistrationStatusEnum::class,
     ];
 
     // ── Relationships ──────────────────────────────────────────────────────
 
+    /**
+     * The Finance stage reviewer (Disbursing Officer).
+     */
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    /**
+     * The Registrar stage reviewer.
+     */
+    public function registrarReviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'registrar_reviewed_by');
     }
 
     public function createdUser(): BelongsTo
@@ -107,19 +123,48 @@ class StudentRegistration extends Model
         return $query->where('status', RegistrationStatusEnum::PENDING->value);
     }
 
-    public function scopeActionable($query)
+    /**
+     * Records actionable by the Registrar stage:
+     * - pending
+     * - needs_revision where revision_stage = 'registrar'
+     */
+    public function scopeRegistrarQueue($query)
     {
-        return $query->whereIn('status', [
-            RegistrationStatusEnum::PENDING->value,
-            RegistrationStatusEnum::NEEDS_REVISION->value,
-        ]);
+        return $query->where(function ($q) {
+            $q->where('status', RegistrationStatusEnum::PENDING->value)
+              ->orWhere(function ($inner) {
+                  $inner->where('status', RegistrationStatusEnum::NEEDS_REVISION->value)
+                        ->where('revision_stage', 'registrar');
+              });
+        });
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    /**
+     * Records actionable by the Finance stage:
+     * - registrar_cleared
+     * - needs_revision where revision_stage = 'finance'
+     */
+    public function scopeFinanceQueue($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('status', RegistrationStatusEnum::REGISTRAR_CLEARED->value)
+              ->orWhere(function ($inner) {
+                  $inner->where('status', RegistrationStatusEnum::NEEDS_REVISION->value)
+                        ->where('revision_stage', 'finance');
+              });
+        });
+    }
+
+    // ── Status Helpers ────────────────────────────────────────────────────
 
     public function isPending(): bool
     {
         return $this->status === RegistrationStatusEnum::PENDING;
+    }
+
+    public function isRegistrarCleared(): bool
+    {
+        return $this->status === RegistrationStatusEnum::REGISTRAR_CLEARED;
     }
 
     public function isApproved(): bool
@@ -132,15 +177,32 @@ class StudentRegistration extends Model
         return $this->status === RegistrationStatusEnum::REJECTED;
     }
 
+    public function isRejectedByRegistrar(): bool
+    {
+        return $this->status === RegistrationStatusEnum::REJECTED_BY_REGISTRAR;
+    }
+
     public function needsRevision(): bool
     {
         return $this->status === RegistrationStatusEnum::NEEDS_REVISION;
     }
 
-    /**
-     * Detect potential duplicate registrations.
-     * Returns existing registrations that share email, contact, or name+birthdate.
-     */
+    public function isRegistrarActionable(): bool
+    {
+        return $this->status->isRegistrarActionable()
+            && ($this->status !== RegistrationStatusEnum::NEEDS_REVISION
+                || $this->revision_stage === 'registrar');
+    }
+
+    public function isFinanceActionable(): bool
+    {
+        return $this->status->isFinanceActionable()
+            && ($this->status !== RegistrationStatusEnum::NEEDS_REVISION
+                || $this->revision_stage === 'finance');
+    }
+
+    // ── Duplicate / Conflict Detection ────────────────────────────────────
+
     public function detectDuplicates(): \Illuminate\Support\Collection
     {
         return static::where('id', '!=', $this->id)
@@ -153,13 +215,10 @@ class StudentRegistration extends Model
                          ->where('birthdate', $this->birthdate);
                   });
             })
-            ->whereIn('status', ['pending', 'approved', 'needs_revision'])
+            ->whereIn('status', ['pending', 'approved', 'registrar_cleared', 'needs_revision'])
             ->get(['id', 'first_name', 'last_name', 'email', 'contact_number', 'status', 'submitted_at']);
     }
 
-    /**
-     * Check if an existing User account matches this registration's email.
-     */
     public function findMatchingUser(): ?User
     {
         return User::where('email', $this->email)->first();

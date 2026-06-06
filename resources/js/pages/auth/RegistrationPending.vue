@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
-import { CheckCircle2, Clock, Copy, Mail, XCircle, AlertTriangle } from 'lucide-vue-next';
-import { ref } from 'vue';
+import { CheckCircle2, Clock, Copy, Mail, XCircle, AlertTriangle, ArrowRight } from 'lucide-vue-next';
+import { ref, computed } from 'vue';
 
 const props = defineProps<{
     registration: {
@@ -14,11 +14,18 @@ const props = defineProps<{
         student_type: string;
         submitted_at: string;
         reviewed_at: string | null;
+        registrar_reviewed_at: string | null;
         status: string;
         status_label: string;
         status_color: string;
+        // Finance stage
         rejection_reason: string | null;
         revision_notes: string | null;
+        // Registrar stage
+        registrar_rejection_reason: string | null;
+        registrar_revision_notes: string | null;
+        // Which queue owns the revision request
+        revision_stage: string | null;
     };
 }>();
 
@@ -30,52 +37,103 @@ const copyToken = async () => {
     setTimeout(() => { copied.value = false; }, 2000);
 };
 
-const statusConfig = {
+// ── Status display config ──────────────────────────────────────────────────
+
+const statusConfig: Record<string, {
+    icon: any;
+    iconClass: string;
+    bgClass: string;
+    headline: string;
+    body: string;
+}> = {
     pending: {
         icon: Clock,
         iconClass: 'text-yellow-500',
         bgClass: 'bg-yellow-50 border-yellow-200',
-        headline: 'Your registration is under review.',
-        body: 'The Accounting Department will review your submission. You will be notified by email once a decision is made.',
+        headline: 'Your registration is under academic review.',
+        body: 'The Registrar\'s office is reviewing your eligibility. You will be notified by email once a decision is made.',
+    },
+    registrar_cleared: {
+        icon: CheckCircle2,
+        iconClass: 'text-blue-500',
+        bgClass: 'bg-blue-50 border-blue-200',
+        headline: 'Academic clearance granted.',
+        body: 'The Registrar has cleared your registration. It is now with the Finance (Accounting) office for billing approval.',
     },
     approved: {
         icon: CheckCircle2,
         iconClass: 'text-green-600',
         bgClass: 'bg-green-50 border-green-200',
-        headline: 'Your registration has been approved!',
+        headline: 'Your registration has been fully approved!',
         body: 'Your account is now active. You can log in using the email and password you provided during registration.',
     },
     rejected: {
         icon: XCircle,
         iconClass: 'text-red-600',
         bgClass: 'bg-red-50 border-red-200',
-        headline: 'Your registration was not approved.',
-        body: 'Please see the reason below. You may submit a new registration after addressing the issue.',
+        headline: 'Your registration was not approved by Finance.',
+        body: 'Please see the reason below. Contact the Cashier\'s window or Disbursing Officer to resolve your financial clearance. You may submit a new registration after resolving the issue.',
+    },
+    rejected_by_registrar: {
+        icon: XCircle,
+        iconClass: 'text-red-600',
+        bgClass: 'bg-red-50 border-red-200',
+        headline: 'Your registration was not approved by the Registrar.',
+        body: 'Please see the reason below. Visit the Registrar\'s office with the required documents to resolve the issue. You may submit a new registration after addressing the concern.',
     },
     needs_revision: {
         icon: AlertTriangle,
         iconClass: 'text-orange-500',
         bgClass: 'bg-orange-50 border-orange-200',
         headline: 'Your registration needs correction.',
-        body: 'The Accounting Department has requested some revisions. Please check your email for the revision link.',
+        body: 'Please check your email for a revision link. Update your submission with the requested information.',
     },
 };
 
-const config = statusConfig[props.registration.status as keyof typeof statusConfig] ?? statusConfig.pending;
+const config = computed(() =>
+    statusConfig[props.registration.status] ?? statusConfig.pending
+);
 
-const steps = [
+// ── Which revision notes to show ──────────────────────────────────────────
+// When needs_revision + revision_stage = 'registrar' → show registrar_revision_notes
+// When needs_revision + revision_stage = 'finance'   → show revision_notes
+const revisionNotes = computed(() => {
+    if (props.registration.status !== 'needs_revision') return null;
+    return props.registration.revision_stage === 'finance'
+        ? props.registration.revision_notes
+        : props.registration.registrar_revision_notes;
+});
+
+const revisionOffice = computed(() => {
+    if (props.registration.status !== 'needs_revision') return '';
+    return props.registration.revision_stage === 'finance'
+        ? 'Finance / Accounting Office'
+        : "Registrar's Office";
+});
+
+// ── Progress steps (3-stage: submitted → under review → decision) ──────────
+const steps = computed(() => [
     { label: 'Submitted', done: true },
     {
-        label: 'Under Review',
-        done: ['approved', 'rejected', 'needs_revision'].includes(props.registration.status),
-        active: props.registration.status === 'pending',
+        label: 'Registrar Review',
+        done: ['registrar_cleared', 'approved', 'rejected_by_registrar'].includes(props.registration.status)
+            || (props.registration.status === 'rejected')
+            || (props.registration.status === 'needs_revision' && props.registration.revision_stage === 'finance'),
+        active: props.registration.status === 'pending'
+            || (props.registration.status === 'needs_revision' && props.registration.revision_stage === 'registrar'),
     },
     {
-        label: 'Decision',
-        done: ['approved', 'rejected'].includes(props.registration.status),
-        active: props.registration.status === 'needs_revision',
+        label: 'Finance Review',
+        done: props.registration.status === 'approved' || props.registration.status === 'rejected',
+        active: props.registration.status === 'registrar_cleared'
+            || (props.registration.status === 'needs_revision' && props.registration.revision_stage === 'finance'),
     },
-];
+    {
+        label: 'Enrolled',
+        done: props.registration.status === 'approved',
+        active: false,
+    },
+]);
 </script>
 
 <template>
@@ -132,23 +190,42 @@ const steps = [
                     </ol>
                 </div>
 
-                <!-- Rejection reason -->
+                <!-- Registrar rejection reason -->
                 <div
-                    v-if="registration.status === 'rejected' && registration.rejection_reason"
+                    v-if="registration.status === 'rejected_by_registrar' && registration.registrar_rejection_reason"
                     class="rounded-md border border-red-200 bg-red-50 p-3"
                 >
-                    <p class="text-xs font-semibold text-red-700 mb-1">Reason for rejection:</p>
-                    <p class="text-sm text-red-800">{{ registration.rejection_reason }}</p>
+                    <p class="text-xs font-semibold text-red-700 mb-1">Reason (Registrar's Office):</p>
+                    <p class="text-sm text-red-800">{{ registration.registrar_rejection_reason }}</p>
+                    <p class="text-xs text-red-600 mt-2">
+                        Please visit the <strong>Registrar's Office</strong> to address this issue before submitting a new application.
+                    </p>
                 </div>
 
-                <!-- Revision notes -->
+                <!-- Finance rejection reason -->
                 <div
-                    v-if="registration.status === 'needs_revision' && registration.revision_notes"
+                    v-else-if="registration.status === 'rejected' && registration.rejection_reason"
+                    class="rounded-md border border-red-200 bg-red-50 p-3"
+                >
+                    <p class="text-xs font-semibold text-red-700 mb-1">Reason (Finance Office):</p>
+                    <p class="text-sm text-red-800">{{ registration.rejection_reason }}</p>
+                    <p class="text-xs text-red-600 mt-2">
+                        Please visit the <strong>Cashier's window or Disbursing Officer</strong> to resolve your financial clearance.
+                    </p>
+                </div>
+
+                <!-- Revision notes (stage-aware) -->
+                <div
+                    v-if="registration.status === 'needs_revision' && revisionNotes"
                     class="rounded-md border border-orange-200 bg-orange-50 p-3"
                 >
-                    <p class="text-xs font-semibold text-orange-700 mb-1">Revision requested:</p>
-                    <p class="text-sm text-orange-800">{{ registration.revision_notes }}</p>
-                    <p class="text-xs text-orange-600 mt-2">Check your email for a link to update your registration.</p>
+                    <p class="text-xs font-semibold text-orange-700 mb-1">
+                        Revision requested by: {{ revisionOffice }}
+                    </p>
+                    <p class="text-sm text-orange-800">{{ revisionNotes }}</p>
+                    <p class="text-xs text-orange-600 mt-2">
+                        Check your email for the link to update your registration.
+                    </p>
                 </div>
 
                 <!-- Registration details -->
@@ -165,8 +242,12 @@ const steps = [
                         <span class="font-medium text-gray-900">{{ registration.year_level }}</span>
                         <span class="text-muted-foreground">Submitted</span>
                         <span class="font-medium text-gray-900">{{ registration.submitted_at }}</span>
+                        <template v-if="registration.registrar_reviewed_at">
+                            <span class="text-muted-foreground">Registrar Review</span>
+                            <span class="font-medium text-gray-900">{{ registration.registrar_reviewed_at }}</span>
+                        </template>
                         <template v-if="registration.reviewed_at">
-                            <span class="text-muted-foreground">Reviewed</span>
+                            <span class="text-muted-foreground">Finance Review</span>
                             <span class="font-medium text-gray-900">{{ registration.reviewed_at }}</span>
                         </template>
                     </div>
@@ -197,11 +278,12 @@ const steps = [
                         :href="route('login')"
                         class="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                     >
+                        <ArrowRight class="h-4 w-4" />
                         Log in to the Portal
                     </a>
 
                     <a
-                        v-if="registration.status === 'rejected'"
+                        v-if="registration.status === 'rejected' || registration.status === 'rejected_by_registrar'"
                         :href="route('register')"
                         class="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                     >
@@ -209,13 +291,14 @@ const steps = [
                     </a>
 
                     <a
-                        :href="`mailto:${registration.email}`"
+                        href="mailto:registrar@ccdi.edu.ph"
                         class="flex items-center justify-center gap-2 rounded-md border border-input bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                     >
                         <Mail class="h-4 w-4" />
-                        Contact Accounting
+                        Contact the School
                     </a>
                 </div>
+
             </div>
         </div>
 

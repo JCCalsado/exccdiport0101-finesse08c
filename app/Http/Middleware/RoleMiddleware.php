@@ -5,69 +5,52 @@ namespace App\Http\Middleware;
 use App\Enums\UserRoleEnum;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 class RoleMiddleware
 {
     /**
-     * Map each role to its named dashboard route.
-     * Used to redirect users who land on a page they don't have access to.
+     * Post-login redirect destination per top-level role.
+     * accounting sub-roles all share the same dashboard; widget visibility
+     * is filtered on the frontend using auth.user.accounting_type.
      */
-    private const ROLE_DASHBOARDS = [
-        'admin'      => 'admin.dashboard',
-        'accounting' => 'accounting.dashboard',
-        'student'    => 'student.dashboard',
+    const ROLE_DASHBOARDS = [
+        UserRoleEnum::ADMIN->value      => 'admin.dashboard',
+        UserRoleEnum::ACCOUNTING->value => 'accounting.dashboard',
+        UserRoleEnum::REGISTRAR->value  => 'registrar.dashboard',
+        UserRoleEnum::STUDENT->value    => 'student.dashboard',
     ];
 
     /**
-     * Handle an incoming request.
+     * Restrict a route to one or more roles.
      *
-     * Checks two things in order:
-     *   1. Is the user's account active? If not, log them out immediately.
-     *   2. Does the user hold one of the required roles? If not, redirect to their dashboard.
-     *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
-     * @param  string  ...$roles  Allowed roles for this route (e.g. 'admin', 'accounting')
+     * Usage in routes:  middleware('role:accounting,admin')
+     * Pass roles as a comma-separated string; order does not matter.
      */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
-        $user = Auth::user();
+        $user = $request->user();
 
-        // Not authenticated — let the 'auth' middleware handle the redirect.
-        if (! $user) {
-            return redirect()->route('login');
+        if (! $user || ! $user->is_active) {
+            abort(403, 'Access denied.');
         }
-
-        // ── DEACTIVATION GATE ──────────────────────────────────────────────────
-        // If the account has been deactivated since this session was created,
-        // destroy the session immediately and send them back to login.
-        // This closes the window where a deactivated user stays browsable
-        // until their session naturally expires.
-        if (! $user->is_active) {
-            Auth::guard('web')->logout();
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-
-            return redirect()->route('login')
-                ->with('flash.error', 'Your account has been deactivated. Please contact an administrator.');
-        }
-        // ──────────────────────────────────────────────────────────────────────
 
         $userRole = $user->role instanceof UserRoleEnum
             ? $user->role->value
-            : (string) $user->role;
+            : $user->role;
 
-        // Role is authorized — continue to the controller.
-        if (in_array($userRole, $roles, true)) {
-            return $next($request);
+        if (! in_array($userRole, $roles, true)) {
+            abort(403, 'You do not have permission to access this page.');
         }
 
-        // Role mismatch — redirect to the user's own dashboard with a flash warning.
-        $dashboardRoute = self::ROLE_DASHBOARDS[$userRole] ?? 'dashboard';
+        return $next($request);
+    }
 
-        return redirect()
-            ->route($dashboardRoute)
-            ->with('flash.warning', 'You do not have permission to access that page.');
+    /**
+     * Resolve the post-login redirect route name for a given user.
+     */
+    public static function dashboardFor(UserRoleEnum $role): string
+    {
+        return self::ROLE_DASHBOARDS[$role->value] ?? 'login';
     }
 }

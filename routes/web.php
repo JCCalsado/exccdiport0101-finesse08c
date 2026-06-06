@@ -15,6 +15,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\PaymentTermsController;
+use App\Http\Controllers\RegistrarController;
 use App\Http\Controllers\StudentAccountController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentDashboardController;
@@ -82,7 +83,10 @@ Route::middleware(['auth', 'verified', 'role:admin,accounting'])
         Route::get('/{userId}', [StudentFeeController::class, 'show'])->whereNumber('userId')->name('show');
     });
 
-// ── Write access: Accounting only ────────────────────────────────────────────
+// ── Write / create — Accounting only (Policy restricts to Disbursing Officer) ──
+// Cashier: recordPayment only. Disbursing Officer: all write actions.
+// Note: route middleware allows all accounting sub-types; Policy enforces sub-role.
+// TODO: Add $this->authorize() to StudentFeeController (see session handoff).
 Route::middleware(['auth', 'verified', 'role:accounting'])
     ->prefix('student-fees')
     ->name('student-fees.')
@@ -152,10 +156,15 @@ Route::middleware(['auth', 'verified', 'role:admin'])->group(function () {
 
 // ============================================
 // ACCOUNTING ROUTES
+// Role: accounting + admin — sub-role restrictions enforced by Policies.
+// TODO (next session): Add $this->authorize() to FeeSettingsController,
+//       FinancialReportsController, and WorkflowApprovalController.
 // ============================================
 Route::middleware(['auth', 'verified', 'role:accounting,admin'])->prefix('accounting')->group(function () {
     Route::get('/dashboard', [AccountingDashboardController::class, 'index'])->name('accounting.dashboard');
     Route::get('/transactions', [TransactionController::class, 'index'])->name('accounting.transactions.index');
+
+    // Financial Reports — Policy: bookkeeper + disbursing_officer + admin
     Route::get('/financial-reports', [FinancialReportsController::class, 'index'])->name('accounting.financial-reports');
     Route::get('/financial-reports/export', [FinancialReportsController::class, 'export'])->name('accounting.financial-reports.export');
     Route::get('/financial-reports/export-assessments', [FinancialReportsController::class, 'exportAssessments'])->name('accounting.financial-reports.export-assessments');
@@ -164,16 +173,14 @@ Route::middleware(['auth', 'verified', 'role:accounting,admin'])->prefix('accoun
     Route::get('/financial-reports/student-history', [FinancialReportsController::class, 'studentTransactionHistory'])->name('accounting.financial-reports.student-history');
     Route::get('/financial-reports/student-receipt', [FinancialReportsController::class, 'downloadStudentReceipt'])->name('accounting.financial-reports.student-receipt');
 
-    // ── Fee Settings (rates, misc fees, payment terms — NO presets) ───────────
+    // Fee Settings — Policy: disbursing_officer + admin
     Route::get('/fee-settings', [FeeSettingsController::class, 'index'])->name('accounting.fee-settings.index');
     Route::patch('/fee-settings/{feeSetting}', [FeeSettingsController::class, 'update'])->name('accounting.fee-settings.update');
     Route::post('/fee-settings/bulk', [FeeSettingsController::class, 'bulkUpdate'])->name('accounting.fee-settings.bulk');
     Route::post('/fee-settings', [FeeSettingsController::class, 'store'])->name('accounting.fee-settings.store');
     Route::delete('/fee-settings/{feeSetting}', [FeeSettingsController::class, 'destroy'])->name('accounting.fee-settings.destroy');
 
-    // ── Preset Subject Management (legacy context — used by FeeSettings.vue deep link only) ──
-    // These routes remain for any existing deep links into preset-subjects from fee settings.
-    // The authoritative subject management UI is now at curriculum-presets.subjects.*
+    // Preset Subject sub-resource (legacy deep links from FeeSettings)
     Route::prefix('fee-settings/presets/{preset}/subjects')
         ->name('accounting.fee-settings.preset-subjects.')
         ->group(function () {
@@ -183,46 +190,66 @@ Route::middleware(['auth', 'verified', 'role:accounting,admin'])->prefix('accoun
             Route::post('/sync',              [PresetSubjectController::class, 'sync'])   ->name('sync');
         });
 
-    // ── Curriculum Preset Registry ───────────────────────────────────────────
-    Route::prefix('curriculum-presets')
-        ->name('accounting.curriculum-presets.')
-        ->group(function () {
-            Route::get('/',            [CurriculumPresetController::class, 'index'])  ->name('index');
-            Route::post('/',           [CurriculumPresetController::class, 'store'])  ->name('store');
-            Route::patch('/{preset}',  [CurriculumPresetController::class, 'update']) ->name('update');
-            Route::delete('/{preset}', [CurriculumPresetController::class, 'destroy'])->name('destroy');
-
-            // ── Subjects sub-resource (Decision A: dedicated page) ──────────
-            Route::get('/{preset}/subjects',                   [PresetSubjectController::class, 'curriculumIndex'])  ->name('subjects.index');
-            Route::post('/{preset}/subjects',                  [PresetSubjectController::class, 'store'])            ->name('subjects.store');
-            Route::delete('/{preset}/subjects/{presetSubject}',[PresetSubjectController::class, 'destroy'])          ->name('subjects.destroy');
-            Route::post('/{preset}/subjects/sync',             [PresetSubjectController::class, 'sync'])             ->name('subjects.sync');
-        });
-
-    // ── Subject Registry ─────────────────────────────────────────────────────
-    Route::prefix('subjects')
-        ->name('accounting.subjects.')
-        ->group(function () {
-            Route::get('/',                    [SubjectController::class, 'index'])        ->name('index');
-            Route::get('/create',              [SubjectController::class, 'create'])       ->name('create');
-            Route::post('/',                   [SubjectController::class, 'store'])        ->name('store');
-            Route::get('/{subject}/edit',      [SubjectController::class, 'edit'])         ->name('edit');
-            Route::put('/{subject}',           [SubjectController::class, 'update'])       ->name('update');
-            Route::delete('/{subject}',        [SubjectController::class, 'destroy'])      ->name('destroy');
-            Route::patch('/{subject}/inline',  [SubjectController::class, 'inlineUpdate']) ->name('inline-update');
-        });
-
-    Route::get('notifications', [NotificationController::class, 'index'])->name('accounting.notifications.index');
-    Route::get('notifications/create', [NotificationController::class, 'create'])->name('accounting.notifications.create');
-    Route::get('notifications/{notification}', [NotificationController::class, 'show'])->name('accounting.notifications.show');
-    Route::get('notifications/{notification}/edit', [NotificationController::class, 'edit'])->name('accounting.notifications.edit');
-    Route::post('notifications', [NotificationController::class, 'store'])->name('accounting.notifications.store');
-    Route::put('notifications/{notification}', [NotificationController::class, 'update'])->name('accounting.notifications.update');
-    Route::delete('notifications/{notification}', [NotificationController::class, 'destroy'])->name('accounting.notifications.destroy');
-
     Route::post('/payment-terms/{paymentTerm}/due-date', [PaymentTermsController::class, 'updateDueDate'])->name('admin.payment-terms.update-due-date');
     Route::post('/payment-terms/bulk-due-date', [PaymentTermsController::class, 'bulkUpdateDueDate'])->name('admin.payment-terms.bulk-due-date');
 });
+
+// ============================================
+// CURRICULUM PRESETS + SUBJECTS
+// Role: accounting + admin + registrar
+// Policy:
+//   - Read  → disbursing_officer + registrar + admin
+//   - Write → registrar + admin
+// These stay at /accounting/* URLs to avoid breaking existing links.
+// ============================================
+Route::middleware(['auth', 'verified', 'role:accounting,admin,registrar'])
+    ->prefix('accounting')
+    ->group(function () {
+        // Curriculum Presets
+        Route::prefix('curriculum-presets')
+            ->name('accounting.curriculum-presets.')
+            ->group(function () {
+                Route::get('/',            [CurriculumPresetController::class, 'index'])  ->name('index');
+                Route::post('/',           [CurriculumPresetController::class, 'store'])  ->name('store');
+                Route::patch('/{preset}',  [CurriculumPresetController::class, 'update']) ->name('update');
+                Route::delete('/{preset}', [CurriculumPresetController::class, 'destroy'])->name('destroy');
+
+                Route::get('/{preset}/subjects',                    [PresetSubjectController::class, 'curriculumIndex'])  ->name('subjects.index');
+                Route::post('/{preset}/subjects',                   [PresetSubjectController::class, 'store'])            ->name('subjects.store');
+                Route::delete('/{preset}/subjects/{presetSubject}', [PresetSubjectController::class, 'destroy'])          ->name('subjects.destroy');
+                Route::post('/{preset}/subjects/sync',              [PresetSubjectController::class, 'sync'])             ->name('subjects.sync');
+            });
+
+        // Subjects
+        Route::prefix('subjects')
+            ->name('accounting.subjects.')
+            ->group(function () {
+                Route::get('/',                    [SubjectController::class, 'index'])        ->name('index');
+                Route::get('/create',              [SubjectController::class, 'create'])       ->name('create');
+                Route::post('/',                   [SubjectController::class, 'store'])        ->name('store');
+                Route::get('/{subject}/edit',      [SubjectController::class, 'edit'])         ->name('edit');
+                Route::put('/{subject}',           [SubjectController::class, 'update'])       ->name('update');
+                Route::delete('/{subject}',        [SubjectController::class, 'destroy'])      ->name('destroy');
+                Route::patch('/{subject}/inline',  [SubjectController::class, 'inlineUpdate']) ->name('inline-update');
+            });
+    });
+
+// ============================================
+// NOTIFICATIONS MANAGEMENT
+// Role: registrar + admin (Registrar owns creation and management)
+// These stay at /accounting/* URLs to avoid breaking existing links.
+// ============================================
+Route::middleware(['auth', 'verified', 'role:accounting,admin,registrar'])
+    ->prefix('accounting')
+    ->group(function () {
+        Route::get('notifications', [NotificationController::class, 'index'])->name('accounting.notifications.index');
+        Route::get('notifications/create', [NotificationController::class, 'create'])->name('accounting.notifications.create');
+        Route::get('notifications/{notification}', [NotificationController::class, 'show'])->name('accounting.notifications.show');
+        Route::get('notifications/{notification}/edit', [NotificationController::class, 'edit'])->name('accounting.notifications.edit');
+        Route::post('notifications', [NotificationController::class, 'store'])->name('accounting.notifications.store');
+        Route::put('notifications/{notification}', [NotificationController::class, 'update'])->name('accounting.notifications.update');
+        Route::delete('notifications/{notification}', [NotificationController::class, 'destroy'])->name('accounting.notifications.destroy');
+    });
 
 // ============================================
 // ACCOUNTING TRANSACTION WORKFLOW ROUTES
@@ -238,16 +265,18 @@ Route::middleware(['auth', 'verified', 'role:accounting'])->prefix('accounting-w
 });
 
 // ============================================
-// WORKFLOW MANAGEMENT ROUTES (accounting only)
+// WORKFLOW MANAGEMENT ROUTES
 // ============================================
 Route::middleware(['auth', 'verified', 'role:accounting'])->group(function () {
     Route::resource('workflows', WorkflowController::class);
 });
 
 // ============================================
-// PAYMENT APPROVAL ROUTES (accounting only)
+// PAYMENT APPROVAL ROUTES
+// Role: accounting (route-level). Policy: disbursing_officer + admin.
+// TODO (next session): Add $this->authorize() to WorkflowApprovalController.
 // ============================================
-Route::middleware(['auth', 'verified', 'role:accounting'])->group(function () {
+Route::middleware(['auth', 'verified', 'role:accounting,admin'])->group(function () {
     Route::get('/approvals', [WorkflowApprovalController::class, 'index'])->name('approvals.index');
     Route::get('/approvals/{approval}', [WorkflowApprovalController::class, 'show'])->name('approvals.show');
     Route::post('/approvals/{approval}/approve', [WorkflowApprovalController::class, 'approve'])->name('approvals.approve');
@@ -255,12 +284,55 @@ Route::middleware(['auth', 'verified', 'role:accounting'])->group(function () {
 });
 
 // ============================================
-// PROOF OF PAYMENT — ROUTE-BASED FILE SERVING
+// PROOF OF PAYMENT FILE SERVING
 // ============================================
 Route::middleware(['auth', 'verified', 'role:accounting,admin'])->group(function () {
     Route::get('/payment/{transaction}/proof/serve', [PaymentController::class, 'serveProof'])->name('payment.proof.serve');
 });
 
+// ============================================
+// REGISTRATION APPROVAL ROUTES — FINANCE STAGE
+// Role: accounting + admin. Policy: disbursing_officer + admin.
+// Shows: registrar_cleared queue only (records the Registrar has cleared).
+// ============================================
+Route::middleware(['auth', 'verified', 'role:accounting,admin'])
+    ->prefix('accounting/registrations')
+    ->name('accounting.registrations.')
+    ->group(function () {
+        Route::get('/',                                 [RegistrationApprovalController::class, 'index'])          ->name('index');
+        Route::get('/{registration}',                   [RegistrationApprovalController::class, 'show'])           ->name('show');
+        Route::post('/{registration}/approve',          [RegistrationApprovalController::class, 'approve'])        ->name('approve');
+        Route::post('/{registration}/reject',           [RegistrationApprovalController::class, 'reject'])         ->name('reject');
+        Route::post('/{registration}/request-revision', [RegistrationApprovalController::class, 'requestRevision'])->name('request-revision');
+        Route::get('/{registration}/documents/{type}',  [RegistrationApprovalController::class, 'serveDocument'])  ->name('document');
+    });
+
+// ============================================
+// REGISTRAR ROUTES
+// Role: registrar + admin.
+// Shows: pending queue (academic-review stage).
+// ============================================
+Route::middleware(['auth', 'verified', 'role:registrar,admin'])
+    ->prefix('registrar')
+    ->name('registrar.')
+    ->group(function () {
+        Route::get('/dashboard', [RegistrarController::class, 'dashboard'])->name('dashboard');
+
+        Route::prefix('registrations')
+            ->name('registrations.')
+            ->group(function () {
+                Route::get('/',                                 [RegistrarController::class, 'registrationIndex'])          ->name('index');
+                Route::get('/{registration}',                   [RegistrarController::class, 'registrationShow'])           ->name('show');
+                Route::post('/{registration}/approve',          [RegistrarController::class, 'registrationApprove'])        ->name('approve');
+                Route::post('/{registration}/reject',           [RegistrarController::class, 'registrationReject'])         ->name('reject');
+                Route::post('/{registration}/request-revision', [RegistrarController::class, 'registrationRequestRevision'])->name('request-revision');
+                Route::get('/{registration}/documents/{type}',  [RegistrarController::class, 'serveDocument'])              ->name('document');
+            });
+    });
+
+// ============================================
+// DEBUG / LOCAL ONLY
+// ============================================
 if (app()->environment(['local', 'staging'])) {
     Route::get('/test-resend', function () {
         \Illuminate\Support\Facades\Notification::route('mail', 'ryuzakikamisama@gmail.com')
@@ -275,25 +347,9 @@ if (app()->environment(['local', 'staging'])) {
     })->name('test.resend');
 }
 
-// ============================================
-// REGISTRATION APPROVAL ROUTES (Accounting + Admin)
-// ============================================
-Route::middleware(['auth', 'verified', 'role:accounting,admin'])
-    ->prefix('accounting/registrations')
-    ->name('accounting.registrations.')
-    ->group(function () {
-        Route::get('/',                                [RegistrationApprovalController::class, 'index'])          ->name('index');
-        Route::get('/{registration}',                  [RegistrationApprovalController::class, 'show'])           ->name('show');
-        Route::post('/{registration}/approve',         [RegistrationApprovalController::class, 'approve'])        ->name('approve');
-        Route::post('/{registration}/reject',          [RegistrationApprovalController::class, 'reject'])         ->name('reject');
-        Route::post('/{registration}/request-revision',[RegistrationApprovalController::class, 'requestRevision'])->name('request-revision');
-        Route::get('/{registration}/documents/{type}', [RegistrationApprovalController::class, 'serveDocument'])  ->name('document');
-    });
-
-require __DIR__ . '/settings.php';
-
 if (app()->environment('local')) {
     Route::middleware('auth')->get('/debug/csrf-token', [\App\Http\Controllers\Debug\DebugController::class, 'csrfToken']);
 }
 
+require __DIR__ . '/settings.php';
 require __DIR__ . '/auth.php';

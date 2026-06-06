@@ -2,37 +2,69 @@
 
 namespace App\Policies;
 
-use App\Enums\UserRoleEnum;
 use App\Models\StudentRegistration;
 use App\Models\User;
 
 class StudentRegistrationPolicy
 {
-    public function viewAny(User $user): bool
+    private function adminPass(User $user): bool
     {
-        return $user->role === UserRoleEnum::ACCOUNTING || $user->role === UserRoleEnum::ADMIN;
+        return $user->isAdmin() && $user->is_active;
     }
 
-    public function view(User $user, StudentRegistration $registration): bool
+    // ── Registrar Stage ────────────────────────────────────────────────────
+
+    /**
+     * View the Registrar's academic-review queue (pending + needs_revision/registrar).
+     */
+    public function viewRegistrarQueue(User $user): bool
     {
-        return $user->role === UserRoleEnum::ACCOUNTING || $user->role === UserRoleEnum::ADMIN;
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isRegistrar();
     }
 
+    /**
+     * Approve, reject, or request revision at the Registrar stage.
+     */
+    public function actAsRegistrar(User $user, StudentRegistration $registration): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active
+            && $user->isRegistrar()
+            && $registration->isRegistrarActionable();
+    }
+
+    // ── Finance Stage ──────────────────────────────────────────────────────
+
+    /**
+     * View the Finance (Disbursing Officer) queue (registrar_cleared + needs_revision/finance).
+     */
+    public function viewFinanceQueue(User $user): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active && $user->isDisbursingOfficer();
+    }
+
+    /**
+     * Approve, reject, or request revision at the Finance stage.
+     */
+    public function actAsFinance(User $user, StudentRegistration $registration): bool
+    {
+        if ($this->adminPass($user)) return true;
+        return $user->is_active
+            && $user->isDisbursingOfficer()
+            && $registration->isFinanceActionable();
+    }
+
+    // ── Legacy method kept for existing code that references it ───────────
+
+    /**
+     * @deprecated  Use actAsRegistrar / actAsFinance instead.
+     */
     public function approve(User $user, StudentRegistration $registration): bool
     {
-        return ($user->role === UserRoleEnum::ACCOUNTING || $user->role === UserRoleEnum::ADMIN)
-            && $registration->isPending();
-    }
-
-    public function reject(User $user, StudentRegistration $registration): bool
-    {
-        return ($user->role === UserRoleEnum::ACCOUNTING || $user->role === UserRoleEnum::ADMIN)
-            && ! $registration->isApproved();
-    }
-
-    public function requestRevision(User $user, StudentRegistration $registration): bool
-    {
-        return ($user->role === UserRoleEnum::ACCOUNTING || $user->role === UserRoleEnum::ADMIN)
-            && $registration->isPending();
+        if ($this->adminPass($user)) return true;
+        return ($user->isDisbursingOfficer() && $registration->isFinanceActionable())
+            || ($user->isRegistrar() && $registration->isRegistrarActionable());
     }
 }
