@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\RegistrationStatusEnum;
 use App\Http\Requests\Accounting\RejectRegistrationRequest;
 use App\Http\Requests\Accounting\RequestRevisionRequest;
-use App\Models\CurriculumPreset;
+use App\Models\CurriculumFeePreset;
 use App\Models\StudentRegistration;
 use App\Models\Subject;
 use Illuminate\Http\RedirectResponse;
@@ -34,7 +34,7 @@ class RegistrarController extends Controller
                             ->whereDate('registrar_reviewed_at', today())
                             ->count();
         $rejectedCount   = StudentRegistration::where('status', 'rejected_by_registrar')->count();
-        $presetCount     = CurriculumPreset::count();
+        $presetCount     = CurriculumFeePreset::count();
         $subjectCount    = Subject::count();
 
         return Inertia::render('Registrar/Dashboard', [

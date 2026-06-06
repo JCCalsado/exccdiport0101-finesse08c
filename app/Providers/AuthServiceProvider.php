@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\Models\CurriculumPreset;
+use App\Models\CurriculumFeePreset;
 use App\Models\FeeSetting;
 use App\Models\Notification;
 use App\Models\Payment;
@@ -37,7 +37,7 @@ class AuthServiceProvider extends ServiceProvider
         StudentPaymentTerm::class  => StudentPaymentTermPolicy::class,
         Payment::class             => PaymentPolicy::class,
         StudentRegistration::class => StudentRegistrationPolicy::class,
-        CurriculumPreset::class    => CurriculumPresetPolicy::class,
+        CurriculumFeePreset::class    => CurriculumPresetPolicy::class,
         Subject::class             => SubjectPolicy::class,
 
         // Bound so `$this->authorize('manageSystemFees', FeeSetting::class)` works.

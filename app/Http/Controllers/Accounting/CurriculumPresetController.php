@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Accounting;
 
 use App\Http\Controllers\Controller;
+use App\Models\CurriculumFeePreset;
 use App\Models\CourseUnitPreset;
 use App\Models\StudentAssessment;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ class CurriculumPresetController extends Controller
 {
     public function index(Request $request): Response
     {
-        $this->authorize('viewAny', CurriculumPreset::class);
+        $this->authorize('viewAny', CurriculumFeePreset::class);
 
         $selectedCourse = $request->input('course');
 
@@ -62,7 +63,7 @@ class CurriculumPresetController extends Controller
 
     public function store(Request $request)
     {
-        $this->authorize('create', CurriculumPreset::class);
+        $this->authorize('create', CurriculumFeePreset::class);
 
         $validated = $request->validate([
             'course'     => ['required', 'string', 'max:150'],
@@ -98,7 +99,7 @@ class CurriculumPresetController extends Controller
 
     public function update(Request $request, CourseUnitPreset $preset)
     {
-        $this->authorize('update', CurriculumPreset::class);
+        $this->authorize('update', CurriculumFeePreset::class);
 
         $validated = $request->validate([
             'is_active' => ['required', 'boolean'],
@@ -112,7 +113,7 @@ class CurriculumPresetController extends Controller
 
     public function destroy(CourseUnitPreset $preset)
     {
-        $this->authorize('delete', CurriculumPreset::class);
+        $this->authorize('delete', CurriculumFeePreset::class);
 
         if ($preset->presetSubjects()->exists()) {
             return back()->withErrors([

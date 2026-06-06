@@ -32,7 +32,6 @@ type AppPageProps = Page['props'] & {
 const page = usePage<AppPageProps>();
 const user = computed(() => page.props.auth.user);
 
-// Year level should reflect latest assessment, not the potentially-stale users.year_level
 const displayYearLevel = computed(() => {
     const assessment = (page.props as any).latestAssessmentInfo;
     if (assessment?.year_level) return assessment.year_level;
@@ -46,9 +45,23 @@ const userRole = computed(() => {
     return role.value ?? role.name ?? 'student';
 });
 
-const isStudent = computed(() => userRole.value === 'student');
-const isAccountingOrAdmin = computed(() => ['accounting', 'admin'].includes(userRole.value));
-const isAdmin = computed(() => userRole.value === 'admin');
+const accountingType = computed(() => (user.value as any).accounting_type as string | null);
+
+const isStudent    = computed(() => userRole.value === 'student');
+const isAdmin      = computed(() => userRole.value === 'admin');
+const isRegistrar  = computed(() => userRole.value === 'registrar');
+// Staff section: accounting, admin, and registrar all have a department/position to display
+const isStaff      = computed(() => ['accounting', 'admin', 'registrar'].includes(userRole.value));
+
+const accountingTypeLabel = computed(() => {
+    if (!accountingType.value) return null;
+    const map: Record<string, string> = {
+        cashier:             'Cashier',
+        bookkeeper:          'Bookkeeper',
+        disbursing_officer:  'Disbursing Officer',
+    };
+    return map[accountingType.value] ?? accountingType.value;
+});
 
 const initialStatus = computed(() => {
     const s = (user.value as any).status;
@@ -92,7 +105,7 @@ const form = useForm({
     account_id: user.value.account_id  ?? '',
     course:     user.value.course      ?? '',
     year_level: user.value.year_level  ?? '',
-    faculty:    user.value.faculty     ?? '',
+    faculty:    (user.value as any).faculty     ?? '',
     status:     initialStatus.value,
 });
 
@@ -162,47 +175,58 @@ const profileInitial = computed(() => {
                 <!-- ═══════════════════════════════════════════════════ -->
                 <!-- PROFILE PICTURE                                      -->
                 <!-- ═══════════════════════════════════════════════════ -->
-                <section class="space-y-4">
-                    <HeadingSmall title="Profile Picture" description="Update your profile photo" />
-                    <div class="flex items-center gap-6">
-                        <div class="shrink-0">
+                <div class="flex items-center gap-6">
+                    <div class="relative">
+                        <div
+                            v-if="hasProfilePicture"
+                            class="h-20 w-20 overflow-hidden rounded-full border-2 border-gray-200"
+                        >
                             <img
-                                v-if="profilePicturePreview"
-                                :src="profilePicturePreview"
-                                class="h-20 w-20 rounded-full border object-cover"
-                                alt="Profile photo"
+                                :src="profilePicturePreview!"
+                                alt="Profile"
+                                class="h-full w-full object-cover"
                             />
-                            <div v-else class="flex h-20 w-20 items-center justify-center rounded-full border bg-muted">
-                                <span class="text-lg font-medium text-muted-foreground">{{ profileInitial }}</span>
-                            </div>
                         </div>
-                        <div class="space-y-2">
+                        <div
+                            v-else
+                            class="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-gray-300 bg-gray-50 text-2xl font-bold text-gray-500"
+                        >
+                            {{ profileInitial }}
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <p class="text-sm font-medium text-gray-700">Profile Picture</p>
+                        <div class="flex gap-2">
                             <input
                                 ref="profilePictureInput"
                                 type="file"
+                                accept="image/jpeg,image/png,image/jpg,image/gif,image/webp"
                                 class="hidden"
-                                accept="image/jpeg,image/png,image/gif,image/webp"
                                 @change="updateProfilePicturePreview"
-                                autocomplete="off"
                             />
-                            <Button type="button" variant="outline" @click="selectProfilePicture" :disabled="profilePictureForm.processing">
-                                <span v-if="profilePictureForm.processing">Uploading…</span>
-                                <span v-else>Select New Photo</span>
+                            <Button type="button" variant="outline" size="sm" @click="selectProfilePicture">
+                                Change
                             </Button>
-                            <div v-if="hasProfilePicture">
-                                <Button type="button" variant="ghost" size="sm" @click="removeProfilePicture" :disabled="profilePictureForm.processing">
-                                    Remove
-                                </Button>
-                            </div>
-                            <InputError class="mt-1" :message="profilePictureError" />
+                            <Button
+                                v-if="hasProfilePicture"
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                class="text-red-600 hover:text-red-700"
+                                @click="removeProfilePicture"
+                            >
+                                Remove
+                            </Button>
                         </div>
+                        <p v-if="profilePictureError" class="text-xs text-red-600">{{ profilePictureError }}</p>
+                        <p class="text-xs text-gray-400">JPG, PNG, GIF or WebP. Max 2MB.</p>
                     </div>
-                </section>
+                </div>
 
                 <Separator />
 
-                <!-- PROFILE INFO FORM -->
-                <form @submit.prevent="submit" class="space-y-10">
+                <form class="space-y-8" @submit.prevent="submit">
 
                     <!-- ═══════════════════════════════════════════════ -->
                     <!-- SECTION 1 — PERSONAL INFORMATION                -->
@@ -210,23 +234,23 @@ const profileInitial = computed(() => {
                     <section class="space-y-4">
                         <HeadingSmall
                             title="Personal Information"
-                            description="Your name, identity, and contact details"
+                            description="Your legal name and personal details"
                         />
 
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                             <div class="space-y-2">
-                                <Label for="last_name">Last Name <span class="text-red-500">*</span></Label>
-                                <Input id="last_name" v-model="form.last_name" autocomplete="family-name" required placeholder="Dela Cruz" />
+                                <Label for="last_name">Last Name</Label>
+                                <Input id="last_name" v-model="form.last_name" autocomplete="family-name" />
                                 <InputError :message="form.errors.last_name" />
                             </div>
                             <div class="space-y-2">
-                                <Label for="first_name">First Name <span class="text-red-500">*</span></Label>
-                                <Input id="first_name" v-model="form.first_name" autocomplete="given-name" required placeholder="Juan" />
+                                <Label for="first_name">First Name</Label>
+                                <Input id="first_name" v-model="form.first_name" autocomplete="given-name" />
                                 <InputError :message="form.errors.first_name" />
                             </div>
                             <div class="space-y-2">
                                 <Label for="middle_name">Middle Name</Label>
-                                <Input id="middle_name" v-model="form.middle_name" autocomplete="additional-name" placeholder="Santos" />
+                                <Input id="middle_name" v-model="form.middle_name" autocomplete="additional-name" />
                                 <InputError :message="form.errors.middle_name" />
                             </div>
                         </div>
@@ -234,7 +258,7 @@ const profileInitial = computed(() => {
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                             <div class="space-y-2">
                                 <Label for="suffix">Suffix</Label>
-                                <Input id="suffix" v-model="form.suffix" placeholder="Jr., Sr., III" maxlength="20" />
+                                <Input id="suffix" v-model="form.suffix" placeholder="Jr., Sr., III, etc." />
                                 <InputError :message="form.errors.suffix" />
                             </div>
                             <div class="space-y-2">
@@ -244,7 +268,7 @@ const profileInitial = computed(() => {
                                     v-model="form.gender"
                                     class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                 >
-                                    <option value="">Select gender</option>
+                                    <option value="">— Select —</option>
                                     <option value="Male">Male</option>
                                     <option value="Female">Female</option>
                                     <option value="Other">Other</option>
@@ -259,7 +283,7 @@ const profileInitial = computed(() => {
                                     v-model="form.civil_status"
                                     class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                 >
-                                    <option value="">Select status</option>
+                                    <option value="">— Select —</option>
                                     <option value="Single">Single</option>
                                     <option value="Married">Married</option>
                                     <option value="Widowed">Widowed</option>
@@ -269,46 +293,21 @@ const profileInitial = computed(() => {
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                             <div class="space-y-2">
-                                <Label for="birthday">Birthday</Label>
-                                <Input
-                                    id="birthday"
-                                    v-model="form.birthday"
-                                    type="date"
-                                    autocomplete="bday"
-                                    min="1900-01-01"
-                                    :max="new Date().toISOString().split('T')[0]"
-                                />
+                                <Label for="birthday">Date of Birth</Label>
+                                <Input id="birthday" type="date" v-model="form.birthday" />
                                 <InputError :message="form.errors.birthday" />
                             </div>
                             <div class="space-y-2">
-                                <Label for="phone">Phone</Label>
-                                <Input id="phone" v-model="form.phone" autocomplete="tel" placeholder="09171234567" />
-                                <InputError :message="form.errors.phone" />
+                                <Label for="email">Email Address</Label>
+                                <Input id="email" type="email" v-model="form.email" autocomplete="email" />
+                                <InputError :message="form.errors.email" />
                             </div>
-                        </div>
-
-                        <div class="space-y-2">
-                            <Label for="email">Email Address <span class="text-red-500">*</span></Label>
-                            <Input id="email" v-model="form.email" type="email" autocomplete="email" required placeholder="student@ccdi.edu.ph" />
-                            <InputError :message="form.errors.email" />
-                        </div>
-
-                        <!-- Email verification notice -->
-                        <div v-if="mustVerifyEmail && !user.email_verified_at">
-                            <p class="text-sm text-muted-foreground">
-                                Your email address is unverified.
-                                <Link
-                                    :href="route('verification.send')"
-                                    as="button"
-                                    class="text-foreground underline underline-offset-4 hover:decoration-current"
-                                >
-                                    Click here to resend the verification email.
-                                </Link>
-                            </p>
-                            <div v-if="status === 'verification-link-sent'" class="mt-2 text-sm font-medium text-green-600">
-                                A new verification link has been sent to your email address.
+                            <div class="space-y-2">
+                                <Label for="phone">Phone Number</Label>
+                                <Input id="phone" v-model="form.phone" autocomplete="tel" placeholder="09XXXXXXXXX" />
+                                <InputError :message="form.errors.phone" />
                             </div>
                         </div>
                     </section>
@@ -316,7 +315,7 @@ const profileInitial = computed(() => {
                     <Separator />
 
                     <!-- ═══════════════════════════════════════════════ -->
-                    <!-- SECTION 2 — ADDRESS                             -->
+                    <!-- SECTION 2 — ADDRESS                              -->
                     <!-- ═══════════════════════════════════════════════ -->
                     <section class="space-y-4">
                         <HeadingSmall
@@ -326,13 +325,13 @@ const profileInitial = computed(() => {
 
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div class="space-y-2">
-                                <Label>Unit / Lot No.</Label>
-                                <Input v-model="form.address_house_lot_unit" placeholder="Unit/Lot No." />
+                                <Label for="address_house_lot_unit">Unit / Lot No.</Label>
+                                <Input id="address_house_lot_unit" v-model="form.address_house_lot_unit" placeholder="Unit/Lot No." />
                                 <InputError :message="form.errors.address_house_lot_unit" />
                             </div>
                             <div class="space-y-2">
-                                <Label>Street Name</Label>
-                                <Input v-model="form.address_street_name" placeholder="Street Name" />
+                                <Label for="address_street_name">Street Name</Label>
+                                <Input id="address_street_name" v-model="form.address_street_name" placeholder="Street Name" />
                                 <InputError :message="form.errors.address_street_name" />
                             </div>
                         </div>
@@ -367,8 +366,7 @@ const profileInitial = computed(() => {
                     <Separator />
 
                     <!-- ═══════════════════════════════════════════════ -->
-                    <!-- SECTION 3 — ACADEMIC INFORMATION (Students)     -->
-                    <!--             or STAFF INFO (Accounting/Admin)    -->
+                    <!-- SECTION 3 — ACADEMIC (Students only)            -->
                     <!-- ═══════════════════════════════════════════════ -->
                     <section v-if="isStudent" class="space-y-4">
                         <HeadingSmall
@@ -377,23 +375,18 @@ const profileInitial = computed(() => {
                         />
 
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                            <!-- Account ID — read only -->
                             <div class="space-y-2">
                                 <Label>Account ID</Label>
                                 <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
                                     {{ form.account_id || 'Not assigned' }}
                                 </div>
                             </div>
-
-                            <!-- Course — read only -->
                             <div class="space-y-2">
                                 <Label>Course</Label>
                                 <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
                                     {{ form.course || 'Not assigned' }}
                                 </div>
                             </div>
-
-                            <!-- Year Level — from latest assessment -->
                             <div class="space-y-2">
                                 <Label>Year Level</Label>
                                 <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
@@ -402,7 +395,6 @@ const profileInitial = computed(() => {
                             </div>
                         </div>
 
-                        <!-- Status — admin can edit, students see read-only -->
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div class="space-y-2">
                                 <Label for="status">Status</Label>
@@ -430,12 +422,40 @@ const profileInitial = computed(() => {
                         </div>
                     </section>
 
-                    <section v-if="isAccountingOrAdmin" class="space-y-4">
-                        <HeadingSmall title="Staff Information" description="Your department and faculty details" />
+                    <!-- ═══════════════════════════════════════════════ -->
+                    <!-- SECTION 3b — STAFF INFO (Accounting/Admin/Registrar) -->
+                    <!-- ═══════════════════════════════════════════════ -->
+                    <section v-if="isStaff" class="space-y-4">
+                        <HeadingSmall
+                            title="Staff Information"
+                            description="Your department and position details"
+                        />
+
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <!-- Department — read-only, set by Admin -->
+                            <div class="space-y-2">
+                                <Label>Department</Label>
+                                <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                                    {{ (user as any).department ?? '—' }}
+                                </div>
+                                <p class="text-xs text-muted-foreground">Assigned by Admin — contact Admin to change.</p>
+                            </div>
+
+                            <!-- Position / Sub-role — read-only, only visible for Accounting staff -->
+                            <div v-if="accountingType" class="space-y-2">
+                                <Label>Position</Label>
+                                <div class="flex items-center rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                                    {{ accountingTypeLabel ?? '—' }}
+                                </div>
+                                <p class="text-xs text-muted-foreground">Assigned by Admin — contact Admin to change.</p>
+                            </div>
+                        </div>
+
+                        <!-- Faculty / Department (editable free-text) -->
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div class="space-y-2">
-                                <Label for="faculty">Faculty / Department</Label>
-                                <Input id="faculty" v-model="form.faculty" autocomplete="organization" placeholder="e.g., Accounting Department" />
+                                <Label for="faculty">Faculty / Room Assignment <span class="text-xs text-muted-foreground">(optional)</span></Label>
+                                <Input id="faculty" v-model="form.faculty" autocomplete="organization" placeholder="e.g., Room 201, Admin Building" />
                                 <InputError :message="form.errors.faculty" />
                             </div>
                         </div>

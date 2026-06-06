@@ -3,11 +3,11 @@ import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 interface Props {
     admin: any;
-    // canManage is true only when admin.department === 'Accounting'
+    // canManage is true for Accounting and Registrar department users (not Administrator)
     canManage: boolean;
 }
 
@@ -22,6 +22,24 @@ const breadcrumbs = [
 
 const formatDate = (d: string | null) =>
     d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+
+const accountingTypeLabel = computed(() => {
+    const t = props.admin.accounting_type as string | null;
+    if (!t) return null;
+    const map: Record<string, string> = {
+        cashier:            'Cashier',
+        bookkeeper:         'Bookkeeper',
+        disbursing_officer: 'Disbursing Officer',
+    };
+    return map[t] ?? t;
+});
+
+const departmentBadgeClass = computed(() => {
+    const dept = props.admin.department as string | null;
+    if (dept === 'Accounting') return 'bg-blue-100 text-blue-800';
+    if (dept === 'Registrar')  return 'bg-violet-100 text-violet-800';
+    return 'bg-purple-100 text-purple-800'; // Administrator
+});
 
 const confirmDeactivate = () => {
     showDeactivateWarning.value = false;
@@ -42,10 +60,6 @@ const reactivate = () => {
             <div class="mb-6 flex items-center justify-between">
                 <Breadcrumbs :items="breadcrumbs" />
 
-                <!--
-                    Management actions only visible when canManage is true,
-                    which the controller sets only for Accounting department users.
-                -->
                 <div v-if="canManage" class="flex shrink-0 gap-2">
                     <Link :href="route('users.edit', admin.id)">
                         <Button>Edit</Button>
@@ -56,7 +70,6 @@ const reactivate = () => {
                     <Button v-else variant="outline" @click="reactivate">Reactivate</Button>
                 </div>
 
-                <!-- Read-only badge for Administrator accounts -->
                 <div v-else>
                     <span class="inline-flex items-center rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
                         Administrator — View only
@@ -89,14 +102,16 @@ const reactivate = () => {
                         {{ admin.last_name }}, {{ admin.first_name }}{{ admin.middle_initial ? ' ' + admin.middle_initial + '.' : '' }}
                     </h1>
                     <p class="mt-1 text-gray-500">{{ admin.email }}</p>
-                    <div class="mt-3 flex items-center gap-2">
-                        <span
-                            :class="[
-                                'rounded-full px-2.5 py-1 text-xs font-medium',
-                                admin.department === 'Accounting' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800',
-                            ]"
-                        >
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <span :class="['rounded-full px-2.5 py-1 text-xs font-medium', departmentBadgeClass]">
                             {{ admin.department ?? 'Administrator' }}
+                        </span>
+                        <!-- Position badge for Accounting sub-roles -->
+                        <span
+                            v-if="accountingTypeLabel"
+                            class="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-800"
+                        >
+                            {{ accountingTypeLabel }}
                         </span>
                         <span
                             :class="[
@@ -117,6 +132,11 @@ const reactivate = () => {
                             <div class="flex justify-between">
                                 <dt class="text-gray-500">Department</dt>
                                 <dd class="text-gray-900">{{ admin.department ?? 'Administrator' }}</dd>
+                            </div>
+                            <!-- Position — only shown for Accounting staff with a sub-role -->
+                            <div v-if="accountingTypeLabel" class="flex justify-between">
+                                <dt class="text-gray-500">Position</dt>
+                                <dd class="text-gray-900">{{ accountingTypeLabel }}</dd>
                             </div>
                             <div class="flex justify-between">
                                 <dt class="text-gray-500">Status</dt>

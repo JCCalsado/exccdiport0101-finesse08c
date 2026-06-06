@@ -9,9 +9,6 @@ use Illuminate\Support\Facades\Hash;
 
 class AdminService
 {
-    /**
-     * Create a new admin, accounting, or registrar user.
-     */
     public function createAdmin(array $data, int|User|null $createdBy = null): User
     {
         if (is_int($createdBy)) {
@@ -47,9 +44,6 @@ class AdminService
         return $admin;
     }
 
-    /**
-     * Update an admin, accounting, or registrar user.
-     */
     public function updateAdmin(User $admin, array $data, int|User|null $updatedBy = null): User
     {
         if (is_int($updatedBy)) {
@@ -91,9 +85,6 @@ class AdminService
         return $admin->refresh();
     }
 
-    /**
-     * Deactivate an admin, accounting, or registrar user.
-     */
     public function deactivateAdmin(User $admin, ?User $performedBy = null): bool
     {
         if (! in_array($admin->department, ['Administrator', 'Accounting', 'Registrar'], true)) {
@@ -107,9 +98,6 @@ class AdminService
         return $admin->update(['is_active' => false]);
     }
 
-    /**
-     * Reactivate an admin, accounting, or registrar user.
-     */
     public function reactivateAdmin(User $admin): bool
     {
         if (! in_array($admin->department, ['Administrator', 'Accounting', 'Registrar'], true)) {
@@ -137,9 +125,6 @@ class AdminService
             ->get();
     }
 
-    /**
-     * Get admin statistics including Registrar staff.
-     */
     public function getAdminStats(): array
     {
         $allStaff      = User::whereIn('department', ['Administrator', 'Accounting', 'Registrar'])->get();
@@ -170,22 +155,22 @@ class AdminService
 
     // ── Private Helpers ────────────────────────────────────────────────────
 
+    /**
+     * Map department string to UserRoleEnum.
+     *
+     * Accounting → accounting (sub-role tracked via accounting_type column)
+     * Registrar  → registrar  (dedicated role, NOT admin)
+     * default    → admin      (Administrator department)
+     */
     private function resolveRole(string $department): UserRoleEnum
     {
         return match ($department) {
             'Accounting' => UserRoleEnum::ACCOUNTING,
-            'Registrar'  => UserRoleEnum::ADMIN,
+            'Registrar'  => UserRoleEnum::REGISTRAR,
             default      => UserRoleEnum::ADMIN,
         };
     }
 
-    /**
-     * Resolve accounting_type for the user record.
-     *
-     * Only populated when department = Accounting.
-     * Null for Administrator and Registrar users.
-     * On update, falls back to the existing value if not supplied.
-     */
     private function resolveAccountingType(string $department, array $validated, ?User $existing = null): ?AccountingTypeEnum
     {
         if ($department !== 'Accounting') {
@@ -216,7 +201,6 @@ class AdminService
         $updateRules = [];
         foreach ($rules as $field => $rule) {
             $ruleString = is_array($rule) ? implode('|', $rule) : $rule;
-            // Strip bare 'required' but preserve 'required_if'
             $ruleString = preg_replace('/(?<![_a-zA-Z])required(?![_a-zA-Z:])/', '', $ruleString);
             $ruleString = trim($ruleString, '|');
             $updateRules[$field] = 'sometimes|' . $ruleString;
