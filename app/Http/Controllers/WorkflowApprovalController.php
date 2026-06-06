@@ -18,22 +18,18 @@ class WorkflowApprovalController extends Controller
 
     public function index(Request $request)
     {
-        $user     = auth()->user();
-        $userRole = $user->role->value ?? null;
+        $this->authorize('viewAny', WorkflowApproval::class);
+
+        $user = auth()->user();
 
         $baseQuery = WorkflowApproval::query()
             ->with([
                 'workflowInstance.workflow',
                 'workflowInstance.workflowable.user',
-            ]);
-
-        if ($userRole === 'accounting') {
-            $baseQuery->whereHas('workflowInstance.workflow', function ($wq) {
+            ])
+            ->whereHas('workflowInstance.workflow', function ($wq) {
                 $wq->where('type', 'payment_approval');
             });
-        } else {
-            $baseQuery->where('approver_id', $user->id);
-        }
 
         // Aggregate counts across ALL records (not just current page)
         $totalPending  = (clone $baseQuery)->where('status', 'pending')->count();
