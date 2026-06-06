@@ -2,7 +2,7 @@
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import { useDataFormatting } from '@/composables/useDataFormatting';
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 const { formatCurrency } = useDataFormatting();
 
@@ -75,6 +75,13 @@ const props = defineProps<{
     };
     studentFeeStats?: StudentFeeStats;
 }>();
+
+const page = usePage();
+const accountingType = computed(() => page.props.auth?.user?.accounting_type as string | null);
+
+const isDO = computed(() => accountingType.value === 'disbursing_officer');
+const isCashier = computed(() => accountingType.value === 'cashier');
+const isBookkeeper = computed(() => accountingType.value === 'bookkeeper');
 
 const breadcrumbs = [{ title: 'Dashboard', href: route('dashboard') }, { title: 'Accounting Dashboard' }];
 
@@ -223,7 +230,7 @@ const viewStudent = (studentId: number) => {
             </div>
 
             <!-- Fee Management + Quick actions -->
-            <div class="ccdi-card p-5">
+            <div v-if="isDO || isCashier" class="ccdi-card p-5">
                 <div class="mb-4 flex items-center justify-between">
                     <div>
                         <h2 class="text-base font-semibold text-foreground">Student Fee Management</h2>
@@ -254,20 +261,20 @@ const viewStudent = (studentId: number) => {
                     </div>
                 </div>
                 <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <Link :href="route('student-fees.create')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-blue-300 hover:bg-blue-50">
+                    <Link v-if="isDO" :href="route('student-fees.create')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-blue-300 hover:bg-blue-50">
                         <div><p class="text-sm font-medium text-foreground">Create Assessment</p><p class="text-xs text-muted-foreground">New student fee</p></div>
                     </Link>
                     <Link :href="route('student-fees.index')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-blue-300 hover:bg-blue-50">
                         <div><p class="text-sm font-medium text-foreground">View All Students</p><p class="text-xs text-muted-foreground">Manage fees</p></div>
                     </Link>
-                    <Link :href="route('approvals.index')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-red-200 hover:bg-red-50">
-                        <div><p class="text-sm font-medium text-foreground">Outstanding Balance</p><p class="text-xs text-muted-foreground">View pending</p></div>
+                    <Link v-if="isDO" :href="route('approvals.index')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-red-200 hover:bg-red-50">
+                        <div><p class="text-sm font-medium text-foreground">Payment Approvals</p><p class="text-xs text-muted-foreground">View pending</p></div>
                     </Link>
                 </div>
             </div>
 
             <!-- Tabs: Overview / Recent Payments / Outstanding -->
-            <div class="ccdi-card overflow-hidden">
+            <div v-if="isDO || isCashier" class="ccdi-card overflow-hidden">
                 <div class="flex border-b border-border bg-muted/20">
                     <button @click="activeTab = 'overview'" class="px-5 py-3 text-sm font-medium transition-all" :class="activeTab === 'overview' ? 'border-b-2 border-blue-600 text-blue-700 bg-card' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'">
                         Overview
@@ -275,7 +282,7 @@ const viewStudent = (studentId: number) => {
                     <button @click="activeTab = 'payments'" class="px-5 py-3 text-sm font-medium transition-all" :class="activeTab === 'payments' ? 'border-b-2 border-blue-600 text-blue-700 bg-card' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'">
                         Recent Payments
                     </button>
-                    <button @click="activeTab = 'balances'" class="px-5 py-3 text-sm font-medium transition-all" :class="activeTab === 'balances' ? 'border-b-2 border-blue-600 text-blue-700 bg-card' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'">
+                    <button v-if="isDO || isCashier" @click="activeTab = 'balances'" class="px-5 py-3 text-sm font-medium transition-all" :class="activeTab === 'balances' ? 'border-b-2 border-blue-600 text-blue-700 bg-card' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'">
                         Outstanding Balances
                     </button>
                 </div>
@@ -298,7 +305,7 @@ const viewStudent = (studentId: number) => {
                     </div>
 
                     <!-- Recent Payments -->
-                    <div v-if="activeTab === 'payments'">
+                    <div v-if="activeTab === 'payments' && (isDO || isCashier)">
                         <div v-if="recentPaymentsFormatted && recentPaymentsFormatted.length > 0" class="divide-y divide-border">
                             <div v-for="payment in recentPaymentsFormatted" :key="payment.id" class="flex items-center justify-between py-3">
                                 <div>
@@ -315,7 +322,7 @@ const viewStudent = (studentId: number) => {
                     </div>
 
                     <!-- Outstanding -->
-                    <div v-if="activeTab === 'balances'">
+                    <div v-if="activeTab === 'balances' && (isDO || isCashier)">
                         <div v-if="outstandingBalances && outstandingBalances.length > 0" class="divide-y divide-border">
                             <div v-for="balance in outstandingBalances" :key="balance.student_id" class="flex items-center justify-between py-3">
                                 <div>
@@ -333,6 +340,47 @@ const viewStudent = (studentId: number) => {
                             <p class="text-xs text-muted-foreground mt-1">No outstanding balances found</p>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Bookkeeper Section -->
+            <div v-if="isBookkeeper" class="ccdi-card p-5">
+                <div class="mb-4 flex items-center justify-between">
+                    <div>
+                        <h2 class="text-base font-semibold text-foreground">Financial Reports</h2>
+                        <p class="text-xs text-muted-foreground">View collection summaries and financial analytics</p>
+                    </div>
+                    <Link :href="route('accounting.transactions.index')" class="ccdi-btn-primary text-xs px-3 py-1.5">View Reports</Link>
+                </div>
+                <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    <div class="rounded-xl border border-border bg-muted/30 p-4">
+                        <p class="text-xs text-muted-foreground">Total Collections</p>
+                        <p class="text-2xl font-bold text-emerald-600">₱{{ Number(statsFormatted.totalCollections).toLocaleString('en-PH', { minimumFractionDigits: 2 }) }}</p>
+                        <p class="text-xs text-muted-foreground">All-time</p>
+                    </div>
+                    <div class="rounded-xl border border-border bg-muted/30 p-4">
+                        <p class="text-xs text-muted-foreground">Collection Rate</p>
+                        <p class="text-2xl font-bold" :class="Number(statsFormatted.collectionRate) >= 50 ? 'text-emerald-600' : 'text-red-600'">{{ Number(statsFormatted.collectionRate).toFixed(2) }}%</p>
+                        <p class="text-xs text-muted-foreground">Efficiency</p>
+                    </div>
+                    <div class="rounded-xl border border-border bg-muted/30 p-4">
+                        <p class="text-xs text-muted-foreground">Active Assessments</p>
+                        <p class="text-2xl font-bold text-foreground">{{ feeStats.totalAssessments }}</p>
+                        <p class="text-xs text-muted-foreground">Current term</p>
+                    </div>
+                    <div class="rounded-xl border border-border bg-muted/30 p-4">
+                        <p class="text-xs text-muted-foreground">Pending Payments</p>
+                        <p class="text-2xl font-bold text-red-600">₱{{ Number(statsFormatted.pendingPayments).toLocaleString('en-PH', { minimumFractionDigits: 2 }) }}</p>
+                        <p class="text-xs text-muted-foreground">Outstanding</p>
+                    </div>
+                </div>
+                <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Link :href="route('accounting.transactions.index')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-blue-300 hover:bg-blue-50">
+                        <div><p class="text-sm font-medium text-foreground">Transaction History</p><p class="text-xs text-muted-foreground">All payments and charges</p></div>
+                    </Link>
+                    <Link :href="route('accounting.dashboard')" class="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-all hover:border-blue-300 hover:bg-blue-50">
+                        <div><p class="text-sm font-medium text-foreground">Export Summary</p><p class="text-xs text-muted-foreground">Download financial reports</p></div>
+                    </Link>
                 </div>
             </div>
         </div>

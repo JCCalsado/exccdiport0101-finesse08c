@@ -4,7 +4,7 @@ import { Head, Link, useForm, router } from '@inertiajs/vue3';
 import {
     AlertTriangle, CheckCircle2, ChevronLeft, FileText, User, XCircle
 } from 'lucide-vue-next';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 
 interface Registration {
     id: number;
@@ -45,6 +45,12 @@ interface Registration {
     submitted_at: string;
     reviewed_at: string | null;
     reviewer_name: string | null;
+    is_finance_actionable: boolean;
+    revision_stage: string | null;
+    registrar_reviewed_at: string | null;
+    registrar_reviewer_name: string | null;
+    registrar_rejection_reason: string | null;
+    registrar_revision_notes: string | null;
 }
 
 const props = defineProps<{
@@ -90,15 +96,17 @@ const approve = () => {
 };
 
 const statusBadgeClass: Record<string, string> = {
-    pending:        'bg-yellow-100 text-yellow-800',
-    approved:       'bg-green-100 text-green-800',
-    rejected:       'bg-red-100 text-red-800',
-    needs_revision: 'bg-orange-100 text-orange-800',
+    pending:                'bg-yellow-100 text-yellow-800',
+    registrar_cleared:      'bg-blue-100 text-blue-800',
+    approved:               'bg-green-100 text-green-800',
+    rejected:               'bg-red-100 text-red-800',
+    rejected_by_registrar:  'bg-red-100 text-red-800',
+    needs_revision:         'bg-orange-100 text-orange-800',
 };
 
-const canApprove  = ['pending', 'needs_revision'].includes(props.registration.status);
-const canReject   = !['approved'].includes(props.registration.status);
-const canRevise   = ['pending'].includes(props.registration.status);
+const canApprove = computed(() => props.registration.is_finance_actionable);
+const canReject  = computed(() => props.registration.is_finance_actionable);
+const canRevise  = computed(() => props.registration.is_finance_actionable && props.registration.revision_stage !== 'registrar');
 
 const studentTypeLabel: Record<string, string> = {
     new:        'New Student',
@@ -170,6 +178,16 @@ const studentTypeLabel: Record<string, string> = {
                         </button>
                     </template>
                 </div>
+            </div>
+
+            <!-- Registrar Clearance Context -->
+            <div
+                v-if="registration.registrar_reviewed_at"
+                class="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800"
+            >
+                <strong>✓ Registrar clearance:</strong>
+                Academically cleared by {{ registration.registrar_reviewer_name ?? 'Registrar' }}
+                on {{ registration.registrar_reviewed_at }}.
             </div>
 
             <!-- Warning: duplicate / existing user -->

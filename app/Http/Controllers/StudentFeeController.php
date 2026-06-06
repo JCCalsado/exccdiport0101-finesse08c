@@ -195,6 +195,8 @@ class StudentFeeController extends Controller
 
     public function create(Request $request): Response
     {
+        $this->authorize('create', StudentAssessment::class);
+
         $preselectedStudent = null;
 
         if ($request->filled('student_id')) {
@@ -231,6 +233,8 @@ class StudentFeeController extends Controller
 
     public function store(Request $request)
     {
+        $this->authorize('create', StudentAssessment::class);
+
         $validated = $request->validate([
             'user_id'             => ['required', 'exists:users,id'],
             'semester'            => ['required', 'in:1st,2nd,Summer'],
@@ -788,16 +792,7 @@ class StudentFeeController extends Controller
 
     public function edit(int $userId): Response|RedirectResponse
     {
-        $authUser = auth()->user();
-        $authRole = $authUser->role instanceof \App\Enums\UserRoleEnum
-            ? $authUser->role->value
-            : (string) $authUser->role;
-
-        if (! in_array($authRole, ['admin', 'accounting'])) {
-            return redirect()
-                ->route('student-fees.show', $userId)
-                ->with('flash.warning', 'Unauthorized to edit assessments.');
-        }
+        $this->authorize('update', StudentAssessment::class);
 
         $user = User::findOrFail($userId);
 
@@ -888,6 +883,8 @@ class StudentFeeController extends Controller
 
     public function update(Request $request, int $userId)
     {
+        $this->authorize('update', StudentAssessment::class);
+
         $validated = $request->validate([
             'semester'             => ['required', 'in:1st,2nd,Summer'],
             'school_year'          => ['required', 'string', 'max:20'],
@@ -1565,12 +1562,9 @@ class StudentFeeController extends Controller
 
     public function storePayment(Request $request, int $userId)
     {
+        $this->authorize('recordPayment', StudentAssessment::class);
+
         $user = $request->user();
-
-        if (! in_array($user->role->value ?? $user->role, ['accounting', 'admin'])) {
-            abort(403, 'Only accounting staff can record payments.');
-        }
-
         $student = User::findOrFail($userId);
         if (! $student->student) {
             abort(404, 'Student account not found.');

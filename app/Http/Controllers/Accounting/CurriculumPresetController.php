@@ -10,29 +10,16 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * CurriculumPresetController
- *
- * Manages the course_unit_presets table through the dedicated
- * Curriculum Preset page (Accounting/CurriculumPreset/Index.vue).
- *
- * Routes:
- *   GET    /accounting/curriculum-presets                      → index()
- *   POST   /accounting/curriculum-presets                      → store()  → redirects to subjects page
- *   GET    /accounting/curriculum-presets/{preset}/subjects    → PresetSubjectController::curriculumIndex()
- *   PATCH  /accounting/curriculum-presets/{preset}             → update()
- *   DELETE /accounting/curriculum-presets/{preset}             → destroy()
- *
- * NOTE: show() is removed. The old redirect to fee-settings.preset-subjects.index
- * is replaced by the dedicated subjects sub-routes above. Index.vue now links
- * directly to accounting.curriculum-presets.subjects.index.
+ * Authorization via CurriculumPresetPolicy (bound to CurriculumPreset::class).
+ *   view  → viewAny / view → Registrar + Disbursing Officer + Admin
+ *   write → create / update / delete → Registrar + Admin only
  */
 class CurriculumPresetController extends Controller
 {
-    /**
-     * Display the curriculum preset grid, grouped by course → year level → semester.
-     */
     public function index(Request $request): Response
     {
+        $this->authorize('viewAny', CurriculumPreset::class);
+
         $selectedCourse = $request->input('course');
 
         $courses = CourseUnitPreset::distinct()
@@ -73,15 +60,10 @@ class CurriculumPresetController extends Controller
         ]);
     }
 
-    /**
-     * Create a new course unit preset, then redirect immediately to its
-     * subjects page (Decision B1) so the user can populate it right away.
-     *
-     * A ?new=1 flag is passed to the subjects page so a "just created" banner
-     * can be shown.
-     */
     public function store(Request $request)
     {
+        $this->authorize('create', CurriculumPreset::class);
+
         $validated = $request->validate([
             'course'     => ['required', 'string', 'max:150'],
             'year_level' => ['required', 'string', 'in:1st Year,2nd Year,3rd Year,4th Year,5th Year'],
@@ -109,18 +91,15 @@ class CurriculumPresetController extends Controller
             'is_active'         => true,
         ]);
 
-        // Decision B1: redirect directly to the subjects management page.
-        // ?new=1 triggers the "Add your subjects" onboarding banner in Subjects.vue.
         return redirect()
             ->route('accounting.curriculum-presets.subjects.index', ['preset' => $preset->id, 'new' => 1])
             ->with('success', "Preset created. Now add subjects to populate it.");
     }
 
-    /**
-     * Toggle a preset's is_active status.
-     */
     public function update(Request $request, CourseUnitPreset $preset)
     {
+        $this->authorize('update', CurriculumPreset::class);
+
         $validated = $request->validate([
             'is_active' => ['required', 'boolean'],
         ]);
@@ -131,14 +110,10 @@ class CurriculumPresetController extends Controller
         return back()->with('success', "{$preset->course} {$preset->year_level} {$preset->semester} {$status}.");
     }
 
-    /**
-     * Delete a preset.
-     *
-     * Blocked if the preset has linked subjects — prevents orphaning
-     * active curriculum configurations.
-     */
     public function destroy(CourseUnitPreset $preset)
     {
+        $this->authorize('delete', CurriculumPreset::class);
+
         if ($preset->presetSubjects()->exists()) {
             return back()->withErrors([
                 'preset' => "Cannot delete this preset — it has {$preset->presetSubjects()->count()} linked subjects. Remove all subjects first via 'Manage Subjects', then delete.",
@@ -152,8 +127,6 @@ class CurriculumPresetController extends Controller
             ->route('accounting.curriculum-presets.index')
             ->with('success', "Preset for {$label} deleted.");
     }
-
-    // ─── Private Helpers ──────────────────────────────────────────────────────
 
     private function countLinkedAssessments(CourseUnitPreset $preset): int
     {

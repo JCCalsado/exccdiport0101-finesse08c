@@ -8,21 +8,16 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 /**
- * FeeSettingsController
- *
- * Manages ONLY billing rates, miscellaneous fees, and payment term percentages.
- *
- * Course Unit Presets have been fully moved to CurriculumPresetController.
- * All preset CRUD methods (storePreset, updatePreset, destroyPreset) and
- * the `presets` / `existingCourses` props have been removed from this controller.
- * The fee-settings.presets.* routes have been removed from web.php.
- *
- * FeeSettings.vue no longer renders a preset section.
+ * Authorization via FeeManagementPolicy (bound to FeeSetting::class).
+ *   view  → viewFeeSettings  → Disbursing Officer + Admin
+ *   write → manageSystemFees → Disbursing Officer + Admin
  */
 class FeeSettingsController extends Controller
 {
     public function index()
     {
+        $this->authorize('viewFeeSettings', FeeSetting::class);
+
         $settings = FeeSetting::where('is_active', true)
             ->orderByRaw("FIELD(category, 'rate', 'miscellaneous', 'other', 'term')")
             ->orderBy('sort_order')->orderBy('id')
@@ -39,6 +34,8 @@ class FeeSettingsController extends Controller
 
     public function update(Request $request, FeeSetting $feeSetting)
     {
+        $this->authorize('manageSystemFees', FeeSetting::class);
+
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:0', 'max:99999.99'],
             'label'  => ['sometimes', 'string', 'max:100'],
@@ -57,6 +54,8 @@ class FeeSettingsController extends Controller
 
     public function store(Request $request)
     {
+        $this->authorize('manageSystemFees', FeeSetting::class);
+
         $validated = $request->validate([
             'label'    => ['required', 'string', 'max:100'],
             'amount'   => ['required', 'numeric', 'min:0', 'max:99999.99'],
@@ -81,6 +80,8 @@ class FeeSettingsController extends Controller
 
     public function destroy(FeeSetting $feeSetting)
     {
+        $this->authorize('manageSystemFees', FeeSetting::class);
+
         if (!$feeSetting->is_deletable) {
             return back()->withErrors(['fee' => "'{$feeSetting->label}' is a system fee and cannot be removed."]);
         }
@@ -94,6 +95,8 @@ class FeeSettingsController extends Controller
 
     public function bulkUpdate(Request $request)
     {
+        $this->authorize('manageSystemFees', FeeSetting::class);
+
         $validated = $request->validate([
             'settings'          => 'required|array',
             'settings.*.id'     => 'required|integer|exists:fee_settings,id',
@@ -125,8 +128,6 @@ class FeeSettingsController extends Controller
         }
         return back()->with('success', 'Fee settings saved successfully.');
     }
-
-    // ─── Private Helpers ──────────────────────────────────────────────────────
 
     private function validateTermPercentages(string $updatedKey, float $newValue): void
     {

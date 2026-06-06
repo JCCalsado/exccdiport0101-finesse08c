@@ -4,13 +4,11 @@ namespace App\Http\Controllers\Auth;
 
 use App\Enums\RegistrationStatusEnum;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Auth\StudentRegistrationRequest;
 use App\Models\StudentRegistration;
 use App\Notifications\NewRegistrationSubmitted;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -50,7 +48,21 @@ class RegistrationStatusController extends Controller
 
     /**
      * Handle revision resubmission.
-     * Validates, updates registration, reverts status to pending.
+     *
+     * Routing logic — which queue the record returns to after resubmit:
+     *
+     *   revision_stage = 'registrar' → set status back to PENDING
+     *                                  (returns to Registrar queue)
+     *                                  clear registrar_revision_notes
+     *
+     *   revision_stage = 'finance'   → set status to REGISTRAR_CLEARED
+     *                                  (returns to Finance queue, skipping Registrar)
+     *                                  clear revision_notes (Finance notes)
+     *
+     *   revision_stage = null        → legacy path, treat as 'registrar'
+     *                                  set status to PENDING
+     *
+     * In all cases: clear revision_stage after routing.
      */
     public function update(Request $request, string $token): RedirectResponse
     {
@@ -59,31 +71,31 @@ class RegistrationStatusController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
-            'last_name'          => ['required', 'string', 'max:100'],
-            'first_name'         => ['required', 'string', 'max:100'],
-            'middle_name'        => ['nullable', 'string', 'max:100'],
-            'suffix'             => ['nullable', 'string', 'max:20'],
-            'gender'             => ['nullable', 'string'],
-            'birthdate'          => ['required', 'date', 'before:today'],
-            'civil_status'       => ['nullable', 'string'],
-            'contact_number'     => ['required', 'string', 'max:20'],
-            'address_house'      => ['nullable', 'string', 'max:255'],
-            'address_street'     => ['nullable', 'string', 'max:255'],
-            'address_barangay'   => ['required', 'string', 'max:255'],
-            'address_city'       => ['required', 'string', 'max:255'],
-            'address_province'   => ['required', 'string', 'max:255'],
-            'address_zip'        => ['nullable', 'string', 'max:10'],
-            'existing_student_id'=> ['nullable', 'string', 'max:50'],
-            'course'             => ['required', 'string', 'max:255'],
-            'year_level'         => ['required', 'string'],
-            'semester'           => ['required', 'string'],
-            'school_year'        => ['required', 'string', 'max:20'],
-            'student_type'       => ['required', 'string'],
-            'guardian_name'      => ['nullable', 'string', 'max:255'],
-            'guardian_contact'   => ['nullable', 'string', 'max:20'],
-            'emergency_contact'  => ['nullable', 'string', 'max:255'],
-            'valid_id'           => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
-            'proof_of_enrollment'=> ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
+            'last_name'           => ['required', 'string', 'max:100'],
+            'first_name'          => ['required', 'string', 'max:100'],
+            'middle_name'         => ['nullable', 'string', 'max:100'],
+            'suffix'              => ['nullable', 'string', 'max:20'],
+            'gender'              => ['nullable', 'string'],
+            'birthdate'           => ['required', 'date', 'before:today'],
+            'civil_status'        => ['nullable', 'string'],
+            'contact_number'      => ['required', 'string', 'max:20'],
+            'address_house'       => ['nullable', 'string', 'max:255'],
+            'address_street'      => ['nullable', 'string', 'max:255'],
+            'address_barangay'    => ['required', 'string', 'max:255'],
+            'address_city'        => ['required', 'string', 'max:255'],
+            'address_province'    => ['required', 'string', 'max:255'],
+            'address_zip'         => ['nullable', 'string', 'max:10'],
+            'existing_student_id' => ['nullable', 'string', 'max:50'],
+            'course'              => ['required', 'string', 'max:255'],
+            'year_level'          => ['required', 'string'],
+            'semester'            => ['required', 'string'],
+            'school_year'         => ['required', 'string', 'max:20'],
+            'student_type'        => ['required', 'string'],
+            'guardian_name'       => ['nullable', 'string', 'max:255'],
+            'guardian_contact'    => ['nullable', 'string', 'max:20'],
+            'emergency_contact'   => ['nullable', 'string', 'max:255'],
+            'valid_id'            => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
+            'proof_of_enrollment' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
         ]);
 
         DB::beginTransaction();
@@ -108,21 +120,56 @@ class RegistrationStatusController extends Controller
 
             unset($validated['valid_id'], $validated['proof_of_enrollment']);
 
+            // ── Stage-aware status routing ────────────────────────────────────
+            //
+            // revision_stage tells us which queue the revision request came from.
+            // After resubmit, route back to that queue by setting the correct status.
+            //
+            $revisionStage = $registration->revision_stage;
+
+            if ($revisionStage === 'finance') {
+                // Student was asked to revise by Finance. They've corrected and
+                // resubmitted. Skip Registrar re-review — go straight to Finance queue.
+                $newStatus    = RegistrationStatusEnum::REGISTRAR_CLEARED->value;
+                $clearNotes   = ['revision_notes' => null];            // Finance notes → clear
+            } else {
+                // revision_stage = 'registrar' or null (legacy).
+                // Return to the beginning: Registrar queue.
+                $newStatus    = RegistrationStatusEnum::PENDING->value;
+                $clearNotes   = ['registrar_revision_notes' => null];  // Registrar notes → clear
+            }
+
             $registration->update(array_merge($validated, [
-                'status'         => RegistrationStatusEnum::PENDING->value,
-                'revision_notes' => null,
+                'status'         => $newStatus,
+                'revision_stage' => null,       // always clear after routing
                 'submitted_at'   => now(),
-            ]));
+            ], $clearNotes));
 
             DB::commit();
 
-            // Re-notify accounting of the updated submission
+            // Re-notify the appropriate staff of the updated submission.
             try {
-                $accountingUsers = \App\Models\User::where('role', 'accounting')
-                    ->where('is_active', true)->get();
-                Notification::send($accountingUsers, new NewRegistrationSubmitted($registration));
+                if ($revisionStage === 'finance') {
+                    // Notify Disbursing Officer(s) — item is back in Finance queue.
+                    $staffUsers = \App\Models\User::where('role', 'accounting')
+                        ->where('is_active', true)
+                        ->get()
+                        ->filter(fn ($u) => $u->isDisbursingOfficer());
+                } else {
+                    // Notify Registrar staff — item is back in Registrar queue.
+                    $staffUsers = \App\Models\User::where('role', 'registrar')
+                        ->where('is_active', true)
+                        ->get();
+                }
+
+                if ($staffUsers->isNotEmpty()) {
+                    Notification::send($staffUsers, new NewRegistrationSubmitted($registration));
+                }
             } catch (\Exception $e) {
-                Log::warning('Failed to re-notify accounting after revision', ['id' => $registration->id]);
+                Log::warning('Failed to re-notify staff after revision resubmit', [
+                    'registration_id' => $registration->id,
+                    'revision_stage'  => $revisionStage,
+                ]);
             }
 
             return redirect()->route('registration.status', ['token' => $token])
@@ -152,8 +199,13 @@ class RegistrationStatusController extends Controller
             'status'         => $r->status->value,
             'status_label'   => $r->status->label(),
             'status_color'   => $r->status->color(),
-            'rejection_reason' => $r->rejection_reason,
-            'revision_notes'   => $r->revision_notes,
+            'rejection_reason'            => $r->rejection_reason,
+            'revision_notes'              => $r->revision_notes,
+            // ── Registrar stage fields — required by RegistrationPending.vue ──
+            'registrar_reviewed_at'       => $r->registrar_reviewed_at?->format('F d, Y g:i A'),
+            'registrar_rejection_reason'  => $r->registrar_rejection_reason,
+            'registrar_revision_notes'    => $r->registrar_revision_notes,
+            'revision_stage'              => $r->revision_stage,
         ];
     }
 
@@ -187,6 +239,8 @@ class RegistrationStatusController extends Controller
             'guardian_contact'    => $r->guardian_contact,
             'emergency_contact'   => $r->emergency_contact,
             'revision_notes'      => $r->revision_notes,
+            'registrar_revision_notes' => $r->registrar_revision_notes,
+            'revision_stage'      => $r->revision_stage,
             'has_valid_id'        => ! empty($r->valid_id_path),
             'has_proof'           => ! empty($r->proof_of_enrollment_path),
         ];

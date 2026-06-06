@@ -163,8 +163,34 @@ class RegistrarController extends Controller
             'revision_stage'        => null,
         ]);
 
-        // TODO: Notify student — "Academic clearance granted. Awaiting Finance approval."
-        // TODO: Notify Disbursing Officer — new item in Finance queue.
+        // Notify applicant — academic clearance granted, awaiting Finance.
+        try {
+            $registration->notify(new \App\Notifications\RegistrationClearedByRegistrar($registration));
+        } catch (\Exception $e) {
+            Log::warning('Failed to send RegistrationClearedByRegistrar email', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+
+        // Notify Disbursing Officer(s) — new item in Finance queue.
+        try {
+            $disbursers = \App\Models\User::where('role', 'accounting')
+                ->where('is_active', true)
+                ->get()
+                ->filter(fn ($u) => $u->isDisbursingOfficer());
+
+            if ($disbursers->isNotEmpty()) {
+                \Illuminate\Support\Facades\Notification::send(
+                    $disbursers,
+                    new \App\Notifications\NewRegistrationSubmitted($registration)
+                );
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to notify Disbursing Officers of new Finance queue item', [
+                'registration_id' => $registration->id,
+            ]);
+        }
 
         return redirect()
             ->route('registrar.registrations.index')
@@ -189,7 +215,15 @@ class RegistrarController extends Controller
             'registrar_reviewed_at'       => now(),
         ]);
 
-        // TODO: Notify student — "Registration rejected by the Registrar." + reason + go to Registrar's office.
+        // Notify applicant — rejected with reason, must visit Registrar's office.
+        try {
+            $registration->notify(new \App\Notifications\RegistrationRejectedByRegistrar($registration));
+        } catch (\Exception $e) {
+            Log::warning('Failed to send RegistrationRejectedByRegistrar email', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
 
         return redirect()
             ->route('registrar.registrations.index')
@@ -208,14 +242,22 @@ class RegistrarController extends Controller
         $this->ensureRegistrarActionable($registration);
 
         $registration->update([
-            'status'                  => RegistrationStatusEnum::NEEDS_REVISION->value,
+            'status'                   => RegistrationStatusEnum::NEEDS_REVISION->value,
             'registrar_revision_notes' => $request->revision_notes,
-            'registrar_reviewed_by'   => auth()->id(),
-            'registrar_reviewed_at'   => now(),
-            'revision_stage'          => 'registrar',
+            'registrar_reviewed_by'    => auth()->id(),
+            'registrar_reviewed_at'    => now(),
+            'revision_stage'           => 'registrar',
         ]);
 
-        // TODO: Notify student — "Your academic documents need revision." + notes.
+        // Notify applicant — academic documents need revision + notes + signed link.
+        try {
+            $registration->notify(new \App\Notifications\RegistrationNeedsRevision($registration));
+        } catch (\Exception $e) {
+            Log::warning('Failed to send RegistrationNeedsRevision email (registrar stage)', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
 
         return redirect()
             ->route('registrar.registrations.index')

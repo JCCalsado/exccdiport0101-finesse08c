@@ -6,29 +6,30 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Head, useForm } from '@inertiajs/vue3';
-import { ArrowLeft, Briefcase, Eye, EyeOff, GraduationCap, LoaderCircle, Shield } from 'lucide-vue-next';
+import { ArrowLeft, BookOpen, Briefcase, Eye, EyeOff, GraduationCap, LoaderCircle, Shield } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 
 defineProps<{ status?: string; canResetPassword: boolean }>();
 
-const selectedRole = ref<'admin' | 'accounting' | 'student' | null>(null);
+const selectedRole = ref<'admin' | 'accounting' | 'registrar' | 'student' | null>(null);
 const showPassword = ref(false);
 
 const form = useForm({
     email: '',
     password: '',
     remember: false,
-    role: null as 'admin' | 'accounting' | 'student' | null,
+    role: null as 'admin' | 'accounting' | 'registrar' | 'student' | null,
 });
 
 const roleOptions = [
     { value: 'admin', label: 'Admin', icon: Shield, accentBg: '#fef2f2', accentText: '#991b1b', iconBg: '#dc2626', description: 'System administrators and managers' },
     { value: 'accounting', label: 'Accounting', icon: Briefcase, accentBg: '#eff6ff', accentText: '#1e40af', iconBg: '#2563eb', description: 'Accounting staff and financial officers' },
+    { value: 'registrar', label: 'Registrar', icon: BookOpen, accentBg: '#f5f3ff', accentText: '#5b21b6', iconBg: '#7c3aed', description: 'Registrar staff — academic records' },
     { value: 'student', label: 'Student', icon: GraduationCap, accentBg: '#f0fdf4', accentText: '#166534', iconBg: '#16a34a', description: 'Students and learners' },
 ] as const;
 
 const currentRole = computed(() => roleOptions.find((r) => r.value === selectedRole.value));
-const selectRole = (role: 'admin' | 'accounting' | 'student') => { selectedRole.value = role; form.role = role; };
+const selectRole = (role: 'admin' | 'accounting' | 'registrar' | 'student') => { selectedRole.value = role; form.role = role; };
 const backToRoleSelection = () => { selectedRole.value = null; form.reset('password'); };
 
 const submit = () => {
