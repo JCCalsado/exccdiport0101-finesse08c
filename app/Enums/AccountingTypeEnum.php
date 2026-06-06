@@ -26,6 +26,6 @@ enum AccountingTypeEnum: string
             self::CASHIER => 'Records over-the-counter payments. Read access to fee assessments.',
             self::BOOKKEEPER => 'Read-only access to financial reports and collection summaries.',
             self::DISBURSING_OFFICER => 'Full accounting access: assessments, payment approvals, fee settings, and finance registration clearance.',
-        ];
+        };
     }
 }

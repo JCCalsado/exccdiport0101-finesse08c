@@ -174,7 +174,7 @@ class AdminService
     {
         return match ($department) {
             'Accounting' => UserRoleEnum::ACCOUNTING,
-            'Registrar'  => UserRoleEnum::REGISTRAR,
+            'Registrar'  => UserRoleEnum::ADMIN,
             default      => UserRoleEnum::ADMIN,
         };
     }

@@ -7,6 +7,14 @@ use App\Models\User;
 class UserPolicy
 {
     /**
+     * Allow admin to view the list of staff users.
+     */
+    public function viewAny(User $user): bool
+    {
+        return $user->isAdmin() && $user->is_active;
+    }
+
+    /**
      * Admin can manage staff accounts across Accounting and Registrar departments.
      * Admin cannot manage other Admin accounts via the staff panel.
      */
@@ -20,6 +28,13 @@ class UserPolicy
     public function create(User $user): bool
     {
         return $user->isAdmin() && $user->is_active;
+    }
+
+    public function view(User $user, User $model): bool
+    {
+        return $user->isAdmin()
+            && $user->is_active
+            && in_array($model->department, ['Accounting', 'Registrar'], true);
     }
 
     public function update(User $user, User $model): bool
