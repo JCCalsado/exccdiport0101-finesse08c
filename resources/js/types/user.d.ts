@@ -1,22 +1,40 @@
 // Base User type — mirrors the resolveAuthUser() output in HandleInertiaRequests.
-// Keep this in sync with that method when adding new shared fields.
+// Keep this in sync whenever new shared fields are added to that method.
 export interface User {
     id: number;
     name: string;           // "LAST, First MI." — computed accessor
     first_name: string;
     last_name: string;
-    middle_name?: string | null;     // Full middle name — primary field
-    middle_initial?: string | null;  // Computed from middle_name; stored as fallback for legacy rows
+    middle_name?: string | null;
+    middle_initial?: string | null;
     suffix?: string | null;
     gender?: string | null;
     civil_status?: string | null;
     email: string;
-    role: string;           // 'admin' | 'accounting' | 'student'
 
-    avatar?: string | null;          // Full URL built from profile_picture — for display
-    profile_picture?: string | null; // Raw storage path — for settings page
+    /** Top-level role. 'registrar' was added in the 2026-06 role decomposition. */
+    role: 'admin' | 'accounting' | 'registrar' | 'student';
+
+    /**
+     * Accounting sub-role. Only populated when role = 'accounting'.
+     * null for admin, registrar, and student users.
+     */
+    accounting_type?: 'cashier' | 'bookkeeper' | 'disbursing_officer' | null;
+
+    /**
+     * Registration queue badge counts.
+     * registrar_queue  → Registrar's pending academic-review queue
+     * finance_queue    → Disbursing Officer's registrar-cleared finance queue
+     * Both are 0 for roles that do not own a queue (Cashier, Bookkeeper, Student).
+     */
+    registration_counts?: {
+        registrar_queue: number;
+        finance_queue:   number;
+    };
+
+    avatar?: string | null;
+    profile_picture?: string | null;
     email_verified_at?: string | null;
-
     is_active?: boolean;
     faculty?: string | null;
     department?: string | null;
@@ -30,11 +48,10 @@ export interface StudentUser extends User {
     is_irregular?: boolean;
     status?: 'active' | 'graduated' | 'dropped';
 
-    // Contact
     phone?: string | null;
-    birthday?: string | null;       // ISO date string "YYYY-MM-DD"
+    birthday?: string | null;   // ISO date string "YYYY-MM-DD"
 
-    // Address — decomposed; old single `address` column was dropped in 2026_05_11 migration
+    // Decomposed address — old single `address` column was dropped in the 2026_05_11 migration
     address_house_lot_unit?: string | null;
     address_street_name?: string | null;
     address_barangay?: string | null;
@@ -42,7 +59,6 @@ export interface StudentUser extends User {
     address_province?: string | null;
     address_zip?: string | null;
 
-    // Guardian / Emergency
     guardian_name?: string | null;
     guardian_contact?: string | null;
     emergency_contact?: string | null;

@@ -55,6 +55,7 @@ class FinancialReportsController extends Controller
 
     public function index(Request $request)
     {
+        $this->authorize('viewFinancialReports');
         $schoolYear = $request->get('school_year', $this->currentAcademicYear());
         $semester   = $request->get('semester', '1st');
         $year       = (int) explode('-', $schoolYear)[0];
@@ -174,6 +175,7 @@ class FinancialReportsController extends Controller
     //
     public function studentTransactionHistory(Request $request)
     {
+        $this->authorize('viewFinancialReports');
         $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
         ]);
@@ -226,6 +228,7 @@ class FinancialReportsController extends Controller
     //
     public function downloadStudentReceipt(Request $request)
     {
+        $this->authorize('viewFinancialReports');
         $request->validate([
             'user_id'     => ['required', 'integer', 'exists:users,id'],
             'school_year' => ['required', 'string'],
@@ -313,6 +316,7 @@ class FinancialReportsController extends Controller
 
     public function export(Request $request)
     {
+        $this->authorize('exportFinancialReports');
         $schoolYear = $request->get('school_year', $this->currentAcademicYear());
         $semester   = $request->get('semester', '1st');
         $year       = (int) explode('-', $schoolYear)[0];
@@ -389,6 +393,7 @@ class FinancialReportsController extends Controller
     //
     public function exportYearly(Request $request)
     {
+        $this->authorize('exportFinancialReports');
         $schoolYear = $request->get('school_year', $this->currentAcademicYear());
         $startYear  = (int) explode('-', $schoolYear)[0];
 
@@ -536,6 +541,7 @@ class FinancialReportsController extends Controller
 
     public function exportAssessments(Request $request)
     {
+        $this->authorize('exportFinancialReports');
         $schoolYear = $request->query('school_year', $this->currentAcademicYear());
         $semester   = $request->query('semester', '1st');
 
@@ -570,6 +576,7 @@ class FinancialReportsController extends Controller
 
     public function exportReceipts(Request $request)
     {
+        $this->authorize('exportFinancialReports');
         $schoolYear = $request->query('school_year', $this->currentAcademicYear());
         $semester   = $request->query('semester', '1st');
         $year       = (int) explode('-', $schoolYear)[0];

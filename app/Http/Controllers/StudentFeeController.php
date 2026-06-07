@@ -104,6 +104,7 @@ class StudentFeeController extends Controller
 
     public function index(Request $request): Response
     {
+        $this->authorize('viewAny', \App\Models\StudentAssessment::class);
         $sortField     = in_array($request->input('sort'), ['name', 'balance']) ? $request->input('sort') : 'name';
         $sortDirection = in_array($request->input('direction'), ['asc', 'desc']) ? $request->input('direction') : 'asc';
 
@@ -471,6 +472,7 @@ class StudentFeeController extends Controller
 
     public function show(int $userId): Response
     {
+        $this->authorize('view', \App\Models\StudentAssessment::class);
         $user = User::with(['latestAssessment.paymentTerms', 'account'])->findOrFail($userId);
 
         $allAssessmentsRaw = StudentAssessment::where('user_id', $userId)

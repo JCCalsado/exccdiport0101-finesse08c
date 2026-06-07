@@ -95,4 +95,56 @@ class UserFactory extends Factory
             ]);
         });
     }
+
+    /**
+     * Accounting staff state.
+     *
+     * Defaults to disbursing_officer since that sub-role has the broadest
+     * permissions and is most useful as a baseline test default.
+     *
+     * Usage:
+     *   User::factory()->accounting()->create();                   // disbursing_officer
+     *   User::factory()->accounting('cashier')->create();
+     *   User::factory()->accounting('bookkeeper')->create();
+     */
+    public function accounting(string $type = 'disbursing_officer'): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role'            => 'accounting',
+            'accounting_type' => $type,
+            'department'      => 'Accounting',
+            'is_active'       => true,
+        ]);
+    }
+
+    /**
+     * Registrar staff state.
+     * accounting_type is always null for Registrar users.
+     */
+    public function registrar(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role'            => 'registrar',
+            'accounting_type' => null,
+            'department'      => 'Registrar',
+            'is_active'       => true,
+        ]);
+    }
+
+    /**
+     * Administrator staff state.
+     * accounting_type is always null for Admin users.
+     * terms_accepted_at is pre-set so admin users pass the terms acceptance
+     * gate without requiring the acceptance flow in tests.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role'              => 'admin',
+            'accounting_type'   => null,
+            'department'        => 'Administrator',
+            'is_active'         => true,
+            'terms_accepted_at' => now(),
+        ]);
+    }
 }

@@ -9,13 +9,24 @@ use App\Services\AdminService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 
+/**
+ * AdminControllerTest
+ *
+ * Updated for role decomposition (2026-06):
+ *  - admin_type column removed from the system entirely.
+ *  - All active Admin users have equal permissions — no super/manager distinction.
+ *  - Admin creates Accounting (requires accounting_type) and Registrar staff only.
+ *  - Administrator accounts cannot be created via the web panel.
+ *  - Valid departments: Administrator, Accounting, Registrar.
+ *  - Route names: users.deactivate / users.reactivate (not admin.users.*)
+ */
 class AdminControllerTest extends TestCase
 {
     use RefreshDatabase;
 
     protected AdminService $adminService;
-    protected User $superAdmin;
-    protected User $manager;
+    protected User $admin;
+    protected User $secondAdmin;
 
     protected function setUp(): void
     {
@@ -23,43 +34,53 @@ class AdminControllerTest extends TestCase
 
         $this->adminService = app(AdminService::class);
 
-        $this->superAdmin = User::factory()->create([
-            'role'               => UserRoleEnum::ADMIN,
-            'admin_type'         => 'super',
-            'is_active'          => true,
-            'terms_accepted_at'  => now(),
+        $this->admin = User::factory()->create([
+            'role'              => UserRoleEnum::ADMIN,
+            'department'        => 'Administrator',
+            'is_active'         => true,
+            'terms_accepted_at' => now(),
         ]);
 
-        $this->manager = User::factory()->create([
-            'role'               => UserRoleEnum::ADMIN,
-            'admin_type'         => 'manager',
-            'is_active'          => true,
-            'terms_accepted_at'  => now(),
+        $this->secondAdmin = User::factory()->create([
+            'role'              => UserRoleEnum::ADMIN,
+            'department'        => 'Administrator',
+            'is_active'         => true,
+            'terms_accepted_at' => now(),
         ]);
     }
+
+    // ── Index ─────────────────────────────────────────────────────────────────
 
     /** @test */
     public function admin_index_page_returns_successful_response(): void
     {
-        $response = $this->actingAs($this->superAdmin)->get(route('users.index'));
+        $response = $this->actingAs($this->admin)->get(route('users.index'));
 
         $response->assertStatus(200);
         $response->assertInertia(fn (Assert $page) => $page->component('Admin/Users/Index'));
     }
 
     /** @test */
-    public function admin_index_page_returns_admin_list(): void
+    public function admin_index_page_lists_accounting_and_registrar_staff(): void
     {
         User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
-            'is_active'  => true,
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'cashier',
+            'department'      => 'Accounting',
+        ]);
+        User::factory()->create([
+            'role'       => UserRoleEnum::REGISTRAR,
+            'department' => 'Registrar',
         ]);
 
-        $response = $this->actingAs($this->superAdmin)->get(route('users.index'));
+        $response = $this->actingAs($this->admin)->get(route('users.index'));
 
         $response->assertStatus(200);
-        $this->assertEquals(3, User::admins()->count());
+        // setUp created 2 admins; above created 1 accounting + 1 registrar = 4 total staff
+        $this->assertEquals(
+            4,
+            User::whereIn('department', ['Administrator', 'Accounting', 'Registrar'])->count()
+        );
     }
 
     /** @test */
@@ -80,281 +101,401 @@ class AdminControllerTest extends TestCase
         $response->assertStatus(403);
     }
 
+    // ── Create ────────────────────────────────────────────────────────────────
+
     /** @test */
-    public function create_admin_page_returns_successful_response(): void
+    public function create_page_returns_successful_response(): void
     {
-        $response = $this->actingAs($this->superAdmin)->get(route('users.create'));
+        $response = $this->actingAs($this->admin)->get(route('users.create'));
 
         $response->assertStatus(200);
         $response->assertInertia(fn (Assert $page) => $page->component('Admin/Users/Create'));
     }
 
     /** @test */
-    public function only_super_admin_can_create_admin(): void
+    public function all_admins_can_access_create_staff_page(): void
     {
-        $response = $this->actingAs($this->manager)->get(route('users.create'));
+        // All active admin users have equal permissions.
+        // There is no super/manager distinction.
+        $response = $this->actingAs($this->secondAdmin)->get(route('users.create'));
 
-        $response->assertStatus(403);
+        $response->assertStatus(200);
     }
 
     /** @test */
-    public function admin_can_be_stored_with_valid_data(): void
+    public function accounting_staff_can_be_created_with_valid_data(): void
     {
         $data = [
             'first_name'            => 'New',
-            'last_name'             => 'Admin',
-            'email'                 => 'newadmin@test.com',
+            'last_name'             => 'Cashier',
+            'email'                 => 'cashier@test.com',
             'password'              => 'SecurePassword123!',
             'password_confirmation' => 'SecurePassword123!',
-            'admin_type'            => 'manager',
-            'department'            => 'Operations',
+            'department'            => 'Accounting',
+            'accounting_type'       => 'cashier',
         ];
 
-        $response = $this->actingAs($this->superAdmin)->post(route('users.store'), $data);
+        $this->actingAs($this->admin)->post(route('users.store'), $data);
 
         $this->assertDatabaseHas('users', [
-            'email'      => 'newadmin@test.com',
-            'admin_type' => 'manager',
-            'department' => 'Operations',
+            'email'           => 'cashier@test.com',
+            'department'      => 'Accounting',
+            'accounting_type' => 'cashier',
+            'role'            => 'accounting',
         ]);
 
-        $newAdmin = User::where('email', 'newadmin@test.com')->first();
-        $this->assertTrue($newAdmin->hasAcceptedTerms());
-        $this->assertNotNull($newAdmin->created_by);
+        $newUser = User::where('email', 'cashier@test.com')->first();
+        $this->assertTrue($newUser->hasAcceptedTerms());
+        $this->assertEquals($this->admin->id, $newUser->created_by);
     }
 
     /** @test */
-    public function admin_cannot_be_created_without_terms_acceptance(): void
+    public function registrar_staff_can_be_created(): void
     {
         $data = [
             'first_name'            => 'New',
-            'last_name'             => 'Admin',
-            'email'                 => 'newadmin@test.com',
+            'last_name'             => 'Registrar',
+            'email'                 => 'registrar@test.com',
             'password'              => 'SecurePassword123!',
             'password_confirmation' => 'SecurePassword123!',
-            'admin_type'            => 'manager',
-            'department'            => 'Operations',
-            'accept_terms'          => false,
+            'department'            => 'Registrar',
         ];
 
-        $response = $this->actingAs($this->superAdmin)->post(route('users.store'), $data);
+        $this->actingAs($this->admin)->post(route('users.store'), $data);
 
-        $response->assertSessionHasErrors('accept_terms');
-        $this->assertDatabaseMissing('users', ['email' => 'newadmin@test.com']);
+        $this->assertDatabaseHas('users', [
+            'email'           => 'registrar@test.com',
+            'department'      => 'Registrar',
+            'role'            => 'registrar',
+            'accounting_type' => null,
+        ]);
     }
 
     /** @test */
-    public function admin_creation_validates_email_uniqueness(): void
+    public function administrator_accounts_cannot_be_created_via_web_panel(): void
     {
-        $existing = User::factory()->create(['email' => 'taken@test.com']);
+        // Sending department=Administrator is remapped to 'Accounting' by the controller.
+        // Without accounting_type, validation fails — the account is never created.
+        $data = [
+            'first_name'            => 'Escalated',
+            'last_name'             => 'Admin',
+            'email'                 => 'escalated@test.com',
+            'password'              => 'SecurePassword123!',
+            'password_confirmation' => 'SecurePassword123!',
+            'department'            => 'Administrator',
+        ];
+
+        $response = $this->actingAs($this->admin)->post(route('users.store'), $data);
+
+        $response->assertSessionHasErrors('accounting_type');
+        $this->assertDatabaseMissing('users', ['email' => 'escalated@test.com']);
+    }
+
+    /** @test */
+    public function accounting_creation_fails_without_accounting_type(): void
+    {
+        $data = [
+            'first_name'            => 'New',
+            'last_name'             => 'Staff',
+            'email'                 => 'staff@test.com',
+            'password'              => 'SecurePassword123!',
+            'password_confirmation' => 'SecurePassword123!',
+            'department'            => 'Accounting',
+        ];
+
+        $response = $this->actingAs($this->admin)->post(route('users.store'), $data);
+
+        $response->assertSessionHasErrors('accounting_type');
+        $this->assertDatabaseMissing('users', ['email' => 'staff@test.com']);
+    }
+
+    /** @test */
+    public function creation_validates_email_uniqueness(): void
+    {
+        User::factory()->create(['email' => 'taken@test.com']);
 
         $data = [
             'first_name'            => 'New',
-            'last_name'             => 'Admin',
+            'last_name'             => 'Staff',
             'email'                 => 'taken@test.com',
             'password'              => 'SecurePassword123!',
             'password_confirmation' => 'SecurePassword123!',
-            'admin_type'            => 'manager',
-            'department'            => 'Operations',
+            'department'            => 'Accounting',
+            'accounting_type'       => 'cashier',
         ];
 
-        $response = $this->actingAs($this->superAdmin)->post(route('users.store'), $data);
+        $response = $this->actingAs($this->admin)->post(route('users.store'), $data);
 
         $response->assertSessionHasErrors('email');
     }
 
     /** @test */
-    public function admin_creation_validates_password_strength(): void
+    public function creation_validates_password_minimum_length(): void
     {
         $data = [
             'first_name'            => 'New',
-            'last_name'             => 'Admin',
-            'email'                 => 'newadmin@test.com',
+            'last_name'             => 'Staff',
+            'email'                 => 'newstaff@test.com',
             'password'              => 'weak',
             'password_confirmation' => 'weak',
-            'admin_type'            => 'manager',
-            'department'            => 'Operations',
+            'department'            => 'Accounting',
+            'accounting_type'       => 'bookkeeper',
         ];
 
-        $response = $this->actingAs($this->superAdmin)->post(route('users.store'), $data);
+        $response = $this->actingAs($this->admin)->post(route('users.store'), $data);
 
         $response->assertSessionHasErrors('password');
     }
 
+    // ── Show / Edit ───────────────────────────────────────────────────────────
+
     /** @test */
-    public function show_page_displays_admin_details(): void
+    public function show_page_displays_accounting_staff_details(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
-            'created_by' => $this->superAdmin->id,
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'disbursing_officer',
+            'department'      => 'Accounting',
+            'created_by'      => $this->admin->id,
         ]);
 
-        $response = $this->actingAs($this->superAdmin)->get(route('users.show', $admin->id));
+        $response = $this->actingAs($this->admin)->get(route('users.show', $staff->id));
 
         $response->assertStatus(200);
         $response->assertInertia(fn (Assert $page) => $page->component('Admin/Users/Show'));
     }
 
     /** @test */
-    public function edit_page_returns_successful_response(): void
+    public function show_page_displays_registrar_staff_details(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
+        $staff = User::factory()->create([
+            'role'       => UserRoleEnum::REGISTRAR,
+            'department' => 'Registrar',
         ]);
 
-        $response = $this->actingAs($this->superAdmin)->get(route('users.edit', $admin->id));
+        $response = $this->actingAs($this->admin)->get(route('users.show', $staff->id));
+
+        $response->assertStatus(200);
+    }
+
+    /** @test */
+    public function edit_page_returns_successful_response_for_accounting_staff(): void
+    {
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'bookkeeper',
+            'department'      => 'Accounting',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('users.edit', $staff->id));
 
         $response->assertStatus(200);
         $response->assertInertia(fn (Assert $page) => $page->component('Admin/Users/Edit'));
     }
 
     /** @test */
-    public function admin_can_be_updated_with_valid_data(): void
+    public function edit_page_is_blocked_for_administrator_accounts(): void
     {
-        $admin = User::factory()->create([
+        // Admin accounts cannot be edited via the staff panel.
+        $anotherAdmin = User::factory()->create([
             'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'manager',
-            'department' => 'Finance',
+            'department' => 'Administrator',
+        ]);
+
+        $response = $this->actingAs($this->admin)->get(route('users.edit', $anotherAdmin->id));
+
+        $response->assertStatus(403);
+    }
+
+    // ── Update ────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function accounting_staff_can_be_updated(): void
+    {
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'cashier',
+            'department'      => 'Accounting',
         ]);
 
         $data = [
-            'first_name' => 'Updated',
-            'last_name'  => 'Name',
-            'email'      => $admin->email,
-            'admin_type' => 'operator',
-            'department' => 'Operations',
+            'first_name'      => 'Updated',
+            'last_name'       => 'Name',
+            'email'           => $staff->email,
+            'department'      => 'Accounting',
+            'accounting_type' => 'disbursing_officer',
         ];
 
-        $response = $this->actingAs($this->superAdmin)->put(route('users.update', $admin->id), $data);
+        $this->actingAs($this->admin)->put(route('users.update', $staff->id), $data);
 
-        $admin->refresh();
-        $this->assertEquals('operator', $admin->admin_type);
-        $this->assertEquals('Operations', $admin->department);
-        $this->assertNotNull($admin->updated_by);
+        $staff->refresh();
+        $this->assertEquals('Updated', $staff->first_name);
+        $this->assertEquals('disbursing_officer', $staff->accounting_type?->value);
+        $this->assertEquals($this->admin->id, $staff->updated_by);
     }
 
     /** @test */
-    public function admin_password_can_be_updated_optionally(): void
+    public function password_can_be_updated_optionally(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'manager',
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'bookkeeper',
+            'department'      => 'Accounting',
         ]);
 
-        $oldPassword = $admin->password;
+        $oldPassword = $staff->password;
 
-        $data = [
+        $this->actingAs($this->admin)->put(route('users.update', $staff->id), [
             'first_name'            => 'Updated',
             'last_name'             => 'Name',
-            'email'                 => $admin->email,
-            'admin_type'            => 'manager',
+            'email'                 => $staff->email,
+            'department'            => 'Accounting',
+            'accounting_type'       => 'bookkeeper',
             'password'              => 'NewSecurePassword123!',
             'password_confirmation' => 'NewSecurePassword123!',
-        ];
+        ]);
 
-        $response = $this->actingAs($this->superAdmin)->put(route('users.update', $admin->id), $data);
-
-        $admin->refresh();
-        $this->assertNotEquals($oldPassword, $admin->password);
+        $staff->refresh();
+        $this->assertNotEquals($oldPassword, $staff->password);
     }
 
     /** @test */
-    public function non_super_admin_cannot_update_admin(): void
+    public function admin_cannot_update_administrator_accounts(): void
     {
-        $admin = User::factory()->create(['role' => UserRoleEnum::ADMIN]);
+        // Administrator accounts are not editable via the staff panel.
+        // UserPolicy::update() blocks: target department must be Accounting or Registrar.
+        $anotherAdmin = User::factory()->create([
+            'role'       => UserRoleEnum::ADMIN,
+            'department' => 'Administrator',
+        ]);
 
-        $data = [
-            'first_name' => 'Updated',
+        $response = $this->actingAs($this->admin)->put(route('users.update', $anotherAdmin->id), [
+            'first_name' => 'Hacked',
             'last_name'  => 'Name',
-            'email'      => $admin->email,
-            'admin_type' => 'manager',
-        ];
-
-        $response = $this->actingAs($this->manager)->put(route('users.update', $admin->id), $data);
+            'email'      => $anotherAdmin->email,
+        ]);
 
         $response->assertStatus(403);
     }
 
     /** @test */
-    public function deactivate_action_sets_is_active_to_false(): void
+    public function student_cannot_update_staff(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
-            'is_active'  => true,
+        $staff   = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'cashier',
+            'department'      => 'Accounting',
         ]);
+        $student = User::factory()->create(['role' => UserRoleEnum::STUDENT]);
 
-        $response = $this->actingAs($this->superAdmin)->post(route('admin.users.deactivate', $admin->id));
-
-        $admin->refresh();
-        $this->assertFalse($admin->is_active);
-    }
-
-    /** @test */
-    public function cannot_deactivate_last_super_admin(): void
-    {
-        User::query()->update(['is_active' => false]);
-        $lastSuperAdmin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'super',
-            'is_active'  => true,
+        $response = $this->actingAs($student)->put(route('users.update', $staff->id), [
+            'first_name' => 'Hacked',
+            'last_name'  => 'Name',
+            'email'      => $staff->email,
         ]);
-
-        $response = $this->actingAs($lastSuperAdmin)->post(route('admin.users.deactivate', $lastSuperAdmin->id));
 
         $response->assertStatus(403);
-        $lastSuperAdmin->refresh();
-        $this->assertTrue($lastSuperAdmin->is_active);
+    }
+
+    // ── Deactivate / Reactivate ───────────────────────────────────────────────
+
+    /** @test */
+    public function deactivate_sets_is_active_to_false(): void
+    {
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'cashier',
+            'department'      => 'Accounting',
+            'is_active'       => true,
+        ]);
+
+        // Route name is users.deactivate, not admin.users.deactivate
+        $this->actingAs($this->admin)->post(route('users.deactivate', $staff->id));
+
+        $staff->refresh();
+        $this->assertFalse($staff->is_active);
     }
 
     /** @test */
-    public function reactivate_action_sets_is_active_to_true(): void
+    public function admin_cannot_deactivate_own_account(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
-            'is_active'  => false,
+        $response = $this->actingAs($this->admin)
+            ->post(route('users.deactivate', $this->admin->id));
+
+        $response->assertStatus(403);
+        $this->admin->refresh();
+        $this->assertTrue($this->admin->is_active);
+    }
+
+    /** @test */
+    public function reactivate_sets_is_active_to_true(): void
+    {
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'bookkeeper',
+            'department'      => 'Accounting',
+            'is_active'       => false,
         ]);
 
-        $response = $this->actingAs($this->superAdmin)->post(route('admin.users.reactivate', $admin->id));
+        // Route name is users.reactivate, not admin.users.reactivate
+        $this->actingAs($this->admin)->post(route('users.reactivate', $staff->id));
 
-        $admin->refresh();
-        $this->assertTrue($admin->is_active);
+        $staff->refresh();
+        $this->assertTrue($staff->is_active);
     }
 
     /** @test */
     public function deactivated_admin_cannot_login(): void
     {
-        $admin = User::factory()->create([
+        $inactiveAdmin = User::factory()->create([
             'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'manager',
+            'department' => 'Administrator',
             'is_active'  => false,
             'password'   => bcrypt('password123'),
         ]);
 
-        $response = $this->post('/login', [
-            'email'    => $admin->email,
+        $this->post('/login', [
+            'email'    => $inactiveAdmin->email,
             'password' => 'password123',
         ]);
 
         $this->assertGuest();
     }
 
+    // ── Delete ────────────────────────────────────────────────────────────────
+
     /** @test */
-    public function delete_admin_is_forbidden(): void
+    public function delete_is_forbidden(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'cashier',
+            'department'      => 'Accounting',
         ]);
 
-        $response = $this->actingAs($this->superAdmin)->delete(route('users.destroy', $admin->id));
+        $response = $this->actingAs($this->admin)->delete(route('users.destroy', $staff->id));
 
         $response->assertStatus(403);
-        $this->assertDatabaseHas('users', ['id' => $admin->id]);
+        $this->assertDatabaseHas('users', ['id' => $staff->id]);
     }
+
+    // ── Security ──────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function inactive_admin_cannot_access_admin_pages(): void
+    {
+        $inactiveAdmin = User::factory()->create([
+            'role'       => UserRoleEnum::ADMIN,
+            'department' => 'Administrator',
+            'is_active'  => false,
+        ]);
+
+        $response = $this->actingAs($inactiveAdmin)->get(route('users.index'));
+
+        $response->assertStatus(403);
+    }
+
+    // ── Audit fields ──────────────────────────────────────────────────────────
 
     /** @test */
     public function audit_fields_are_populated_on_creation(): void
@@ -365,52 +506,42 @@ class AdminControllerTest extends TestCase
             'email'                 => 'audit@test.com',
             'password'              => 'SecurePassword123!',
             'password_confirmation' => 'SecurePassword123!',
-            'admin_type'            => 'manager',
-            'department'            => 'Operations',
+            'department'            => 'Accounting',
+            'accounting_type'       => 'bookkeeper',
         ];
 
-        $response = $this->actingAs($this->superAdmin)->post(route('users.store'), $data);
+        $this->actingAs($this->admin)->post(route('users.store'), $data);
 
-        $newAdmin = User::where('email', 'audit@test.com')->first();
-        $this->assertEquals($this->superAdmin->id, $newAdmin->created_by);
-        $this->assertNotNull($newAdmin->created_at);
+        $newStaff = User::where('email', 'audit@test.com')->first();
+        $this->assertEquals($this->admin->id, $newStaff->created_by);
+        $this->assertNotNull($newStaff->created_at);
     }
 
     /** @test */
-    public function audit_fields_are_updated_on_modification(): void
+    public function updated_by_is_set_on_modification(): void
     {
-        $admin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'operator',
-        ]);
-
-        $originalUpdatedAt = $admin->updated_at;
-
-        $data = [
-            'first_name' => 'Updated',
-            'last_name'  => 'Admin',
-            'email'      => $admin->email,
-            'admin_type' => 'manager',
-        ];
-
-        $updatingAdmin = User::factory()->create([
-            'role'              => UserRoleEnum::ADMIN,
-            'admin_type'        => 'super',
-            'is_active'         => true,
-            'terms_accepted_at' => now(),
+        $staff = User::factory()->create([
+            'role'            => UserRoleEnum::ACCOUNTING,
+            'accounting_type' => 'cashier',
+            'department'      => 'Accounting',
         ]);
 
         $this->travel(1)->seconds();
 
-        $this->actingAs($updatingAdmin)->put(route('users.update', $admin->id), $data);
+        $this->actingAs($this->secondAdmin)->put(route('users.update', $staff->id), [
+            'first_name'      => 'Updated',
+            'last_name'       => 'Staff',
+            'email'           => $staff->email,
+            'department'      => 'Accounting',
+            'accounting_type' => 'cashier',
+        ]);
 
-        $admin->refresh();
-        $this->assertEquals($updatingAdmin->id, $admin->updated_by);
-        $this->assertNotEquals($originalUpdatedAt->timestamp, $admin->updated_at->timestamp);
+        $staff->refresh();
+        $this->assertEquals($this->secondAdmin->id, $staff->updated_by);
     }
 
     /** @test */
-    public function admin_creation_logs_action(): void
+    public function creation_sets_created_by_to_acting_admin(): void
     {
         $data = [
             'first_name'            => 'Log',
@@ -418,27 +549,13 @@ class AdminControllerTest extends TestCase
             'email'                 => 'log@test.com',
             'password'              => 'SecurePassword123!',
             'password_confirmation' => 'SecurePassword123!',
-            'admin_type'            => 'manager',
-            'department'            => 'Operations',
+            'department'            => 'Accounting',
+            'accounting_type'       => 'disbursing_officer',
         ];
 
-        $this->actingAs($this->superAdmin)->post(route('users.store'), $data);
+        $this->actingAs($this->admin)->post(route('users.store'), $data);
 
-        $newAdmin = User::where('email', 'log@test.com')->first();
-        $this->assertEquals($this->superAdmin->id, $newAdmin->created_by);
-    }
-
-    /** @test */
-    public function inactive_admin_cannot_access_admin_pages(): void
-    {
-        $inactiveAdmin = User::factory()->create([
-            'role'       => UserRoleEnum::ADMIN,
-            'admin_type' => 'super',
-            'is_active'  => false,
-        ]);
-
-        $response = $this->actingAs($inactiveAdmin)->get(route('users.index'));
-
-        $response->assertStatus(403);
+        $newStaff = User::where('email', 'log@test.com')->first();
+        $this->assertEquals($this->admin->id, $newStaff->created_by);
     }
 }

@@ -43,7 +43,7 @@ class NotificationController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isAdmin() || $user->isAccounting()) {
+        if ($user->isAdmin() || $user->isRegistrar()) {
             $paginated = Notification::orderByDesc('created_at')
                 ->paginate(20)
                 ->through(fn ($n) => $this->mapNotificationForAdmin($n));
