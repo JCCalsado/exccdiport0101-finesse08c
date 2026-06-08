@@ -9,9 +9,9 @@ import {
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/vue3';
 import {
-    Banknote, BarChart3, Bell, BookOpen, CheckCircle2, ClipboardList,
-    CreditCard, GraduationCap, History, LayoutGrid, LayoutTemplate,
-    Receipt, Settings, Users,
+    BadgeDollarSign, Banknote, BarChart3, Bell, BookOpen, CheckCircle2,
+    ClipboardList, CreditCard, GraduationCap, History, LayoutGrid,
+    LayoutTemplate, Receipt, Settings, Users,
 } from 'lucide-vue-next';
 import { computed } from 'vue';
 import AppLogo from './AppLogo.vue';
@@ -37,9 +37,10 @@ const mainNavItems = computed<NavItem[]>(() => {
     // ── Student ──────────────────────────────────────────────────────────────
     if (role === 'student') {
         return [
-            { title: 'Dashboard',           href: safeRoute('student.dashboard'),  icon: LayoutGrid },
-            { title: 'My Account',          href: safeRoute('student.account'),    icon: CreditCard },
-            { title: 'Transaction History', href: safeRoute('transactions.index'), icon: History    },
+            { title: 'Dashboard',           href: safeRoute('student.dashboard'),          icon: LayoutGrid      },
+            { title: 'My Account',          href: safeRoute('student.account'),            icon: CreditCard      },
+            { title: 'Other Charges',       href: safeRoute('student.other-charges.index'), icon: BadgeDollarSign },
+            { title: 'Transaction History', href: safeRoute('transactions.index'),         icon: History         },
         ];
     }
 
@@ -55,6 +56,7 @@ const mainNavItems = computed<NavItem[]>(() => {
             { title: 'Student Overview',   href: safeRoute('student-fees.index'),                  icon: GraduationCap  },
             { title: 'Student Archive',    href: safeRoute('students.archive'),                    icon: History        },
             { title: 'Financial Reports',  href: safeRoute('accounting.financial-reports'),        icon: BarChart3      },
+            { title: 'Other Charges',      href: safeRoute('accounting.other-charges.index'),      icon: BadgeDollarSign },
             { title: 'Curriculum Presets', href: safeRoute('accounting.curriculum-presets.index'), icon: LayoutTemplate },
             { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen       },
             {
@@ -118,6 +120,9 @@ const mainNavItems = computed<NavItem[]>(() => {
                 { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen       },
             );
         }
+
+        // All accounting sub-roles: Other Charges list (Policy enforces per-action access)
+        items.push({ title: 'Other Charges', href: safeRoute('accounting.other-charges.index'), icon: BadgeDollarSign });
 
         // Bookkeeper + Disbursing Officer: financial reports
         if (isBookkeeper.value || isDisbursingOfficer.value) {

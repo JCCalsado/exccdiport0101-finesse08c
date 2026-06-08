@@ -325,11 +325,7 @@ class RegistrationApprovalController extends Controller
      */
     public function serveDocument(StudentRegistration $registration, string $type): mixed
     {
-        $path = match ($type) {
-            'valid_id' => $registration->valid_id_path,
-            'proof'    => $registration->proof_of_enrollment_path,
-            default    => null,
-        };
+        $this->authorize('viewFinanceQueue', StudentRegistration::class);
 
         if (! $path || ! Storage::disk('private')->exists($path)) {
             abort(404);

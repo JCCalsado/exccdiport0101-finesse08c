@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, usePage } from '@inertiajs/vue3';
 import { formatCurrency } from '@/composables/useMoney';
@@ -127,7 +128,7 @@ const statusLabel = (status: string) => {
         <Head title="Other Charges" />
 
         <div class="w-full p-6 space-y-6">
-            <div :items="breadcrumbs" />
+            <Breadcrumbs :items="breadcrumbs" />
 
             <!-- Header -->
             <div class="flex items-center gap-3">

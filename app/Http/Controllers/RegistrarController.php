@@ -29,7 +29,7 @@ class RegistrarController extends Controller
 
     public function dashboard(): Response
     {
-        $queueCount      = StudentRegistration::registrarQueue()->count();
+        $this->authorize('viewRegistrarQueue', StudentRegistration::class);
         $clearedToday    = StudentRegistration::where('status', 'registrar_cleared')
                             ->whereDate('registrar_reviewed_at', today())
                             ->count();

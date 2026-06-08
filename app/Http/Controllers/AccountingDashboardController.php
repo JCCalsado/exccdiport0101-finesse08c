@@ -19,8 +19,8 @@ class AccountingDashboardController extends Controller
         $month       = now()->month;
 
         $currentSemester = match (true) {
-            $month >= 6 && $month <= 10 => '1st Sem',
-            $month >= 11 || $month <= 3 => '2nd Sem',
+            $month >= 6 && $month <= 10 => '1st',
+            $month >= 11 || $month <= 3 => '2nd',
             default                     => 'Summer',
         };
 
