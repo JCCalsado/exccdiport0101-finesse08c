@@ -11,7 +11,7 @@ import { Link, usePage } from '@inertiajs/vue3';
 import {
     Banknote, BarChart3, Bell, BookOpen, CheckCircle2, ClipboardList,
     CreditCard, GraduationCap, History, LayoutGrid, LayoutTemplate,
-    Receipt, Settings, Users,
+    Receipt, Settings, Users, Zap,
 } from 'lucide-vue-next';
 import { computed } from 'vue';
 import AppLogo from './AppLogo.vue';
@@ -100,6 +100,7 @@ const mainNavItems = computed<NavItem[]>(() => {
         // Disbursing Officer + Cashier: see fee management
         if (isDisbursingOfficer.value || isCashier.value) {
             items.push({ title: 'Student Fee Management', href: safeRoute('student-fees.index'), icon: Receipt });
+            items.push({ title: 'Auto Assessment', href: safeRoute('accounting.auto-assess.index'), icon: Zap });
         }
 
         // Disbursing Officer only: payment approvals, fee settings, registration approvals,

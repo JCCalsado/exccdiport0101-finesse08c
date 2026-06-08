@@ -52,11 +52,6 @@ class RegistrarController extends Controller
     // REGISTRAR-STAGE REGISTRATION QUEUE
     // ══════════════════════════════════════════════════════════════════════════
 
-    /**
-     * List registrations in the Registrar's academic-review queue.
-     *
-     * Registrar queue = pending + needs_revision (revision_stage = 'registrar').
-     */
     public function registrationIndex(Request $request): Response
     {
         $this->authorize('viewRegistrarQueue', StudentRegistration::class);
@@ -116,9 +111,6 @@ class RegistrarController extends Controller
         ]);
     }
 
-    /**
-     * Show a single registration for Registrar review.
-     */
     public function registrationShow(StudentRegistration $registration): Response
     {
         $this->authorize('viewRegistrarQueue', StudentRegistration::class);
@@ -150,6 +142,10 @@ class RegistrarController extends Controller
     /**
      * Clear the registration academically (Registrar stage approval).
      * Sets status → registrar_cleared. Forwards to the Finance queue.
+     *
+     * FIX: Was using $registration->notify(...) which fails silently because
+     * StudentRegistration does not have the Notifiable trait. Switched to the
+     * Notification::route() facade pattern (same as RegistrationApprovalController).
      */
     public function registrationApprove(StudentRegistration $registration): RedirectResponse
     {
@@ -165,7 +161,8 @@ class RegistrarController extends Controller
 
         // Notify applicant — academic clearance granted, awaiting Finance.
         try {
-            $registration->notify(new \App\Notifications\RegistrationClearedByRegistrar($registration));
+            Notification::route('mail', $registration->email)
+                ->notify(new \App\Notifications\RegistrationClearedByRegistrar($registration));
         } catch (\Exception $e) {
             Log::warning('Failed to send RegistrationClearedByRegistrar email', [
                 'registration_id' => $registration->id,
@@ -181,7 +178,7 @@ class RegistrarController extends Controller
                 ->filter(fn ($u) => $u->isDisbursingOfficer());
 
             if ($disbursers->isNotEmpty()) {
-                \Illuminate\Support\Facades\Notification::send(
+                Notification::send(
                     $disbursers,
                     new \App\Notifications\NewRegistrationSubmitted($registration)
                 );
@@ -200,6 +197,8 @@ class RegistrarController extends Controller
     /**
      * Reject at the Registrar stage.
      * Sets status → rejected_by_registrar. Terminal state.
+     *
+     * FIX: Same Notifiable-trait issue as approve(). Switched to facade.
      */
     public function registrationReject(
         RejectRegistrationRequest $request,
@@ -217,7 +216,8 @@ class RegistrarController extends Controller
 
         // Notify applicant — rejected with reason, must visit Registrar's office.
         try {
-            $registration->notify(new \App\Notifications\RegistrationRejectedByRegistrar($registration));
+            Notification::route('mail', $registration->email)
+                ->notify(new \App\Notifications\RegistrationRejectedByRegistrar($registration));
         } catch (\Exception $e) {
             Log::warning('Failed to send RegistrationRejectedByRegistrar email', [
                 'registration_id' => $registration->id,
@@ -232,7 +232,6 @@ class RegistrarController extends Controller
 
     /**
      * Request academic revision from the applicant.
-     * Sets revision_stage = 'registrar' so resubmission returns to this queue.
      */
     public function registrationRequestRevision(
         RequestRevisionRequest $request,
@@ -249,13 +248,16 @@ class RegistrarController extends Controller
             'revision_stage'           => 'registrar',
         ]);
 
-        // Notify applicant — academic documents need revision + notes + signed link.
+        // Notify applicant — academic documents need revision.
+        // NOTE: RegistrationNeedsRevision reads $registration->revision_notes (Finance)
+        //       not registrar_revision_notes. The student-facing RegistrationRevise.vue
+        //       must display registrar_revision_notes when revision_stage = 'registrar'.
         try {
-            $registration->notify(new \App\Notifications\RegistrationNeedsRevision($registration));
+            Notification::route('mail', $registration->email)
+                ->notify(new \App\Notifications\RegistrationNeedsRevision($registration));
         } catch (\Exception $e) {
             Log::warning('Failed to send RegistrationNeedsRevision email (registrar stage)', [
                 'registration_id' => $registration->id,
-                'error'           => $e->getMessage(),
             ]);
         }
 
@@ -286,9 +288,6 @@ class RegistrarController extends Controller
 
     // ── Private Helpers ────────────────────────────────────────────────────
 
-    /**
-     * Abort if the registration is not in the Registrar-stage queue.
-     */
     private function ensureRegistrarActionable(StudentRegistration $registration): void
     {
         if ($registration->isRegistrarCleared() || $registration->isApproved()) {
@@ -368,14 +367,12 @@ class RegistrarController extends Controller
             'status_label'                => $r->status->label(),
             'status_color'                => $r->status->color(),
             'revision_stage'              => $r->revision_stage,
-            // ── Registrar stage ──────────────────────────────────────────
             'registrar_rejection_reason'  => $r->registrar_rejection_reason,
             'registrar_revision_notes'    => $r->registrar_revision_notes,
             'registrar_reviewed_at'       => $r->registrar_reviewed_at?->format('F d, Y g:i A'),
             'registrar_reviewer_name'     => $r->registrarReviewer
                 ? $r->registrarReviewer->first_name . ' ' . $r->registrarReviewer->last_name
                 : null,
-            // ──────────────────────────────────────────────────────────
             'submitted_at'                => $r->submitted_at?->format('F d, Y g:i A'),
             'is_registrar_actionable'     => $r->isRegistrarActionable(),
         ];
