@@ -11,7 +11,7 @@ import { Link, usePage } from '@inertiajs/vue3';
 import {
     Banknote, BarChart3, Bell, BookOpen, CheckCircle2, ClipboardList,
     CreditCard, GraduationCap, History, LayoutGrid, LayoutTemplate,
-    Receipt, Settings, Users, Zap,
+    Receipt, Settings, Users,
 } from 'lucide-vue-next';
 import { computed } from 'vue';
 import AppLogo from './AppLogo.vue';
@@ -22,7 +22,7 @@ const safeRoute = (name: string, params?: any): string => {
 
 const page = usePage();
 
-const userRole    = computed(() => (page.props.auth as any)?.user?.role           ?? 'student');
+const userRole       = computed(() => (page.props.auth as any)?.user?.role            ?? 'student');
 const accountingType = computed(() => (page.props.auth as any)?.user?.accounting_type ?? null);
 const registrationCounts = computed(() => (page.props.auth as any)?.user?.registration_counts ?? { registrar_queue: 0, finance_queue: 0 });
 
@@ -45,18 +45,18 @@ const mainNavItems = computed<NavItem[]>(() => {
 
     // ── Admin ────────────────────────────────────────────────────────────────
     if (role === 'admin') {
-        const financeQueueCount    = registrationCounts.value.finance_queue   ?? 0;
-        const registrarQueueCount  = registrationCounts.value.registrar_queue ?? 0;
-        const totalPending         = financeQueueCount + registrarQueueCount;
+        const financeQueueCount   = registrationCounts.value.finance_queue   ?? 0;
+        const registrarQueueCount = registrationCounts.value.registrar_queue ?? 0;
+        const totalPending        = financeQueueCount + registrarQueueCount;
 
         return [
-            { title: 'Dashboard',          href: safeRoute('admin.dashboard'),                     icon: LayoutGrid    },
-            { title: 'Users',              href: safeRoute('users.index'),                         icon: Users         },
-            { title: 'Student Overview',   href: safeRoute('student-fees.index'),                  icon: GraduationCap },
-            { title: 'Student Archive',    href: safeRoute('students.archive'),                    icon: History       },
-            { title: 'Financial Reports',  href: safeRoute('accounting.financial-reports'),        icon: BarChart3     },
+            { title: 'Dashboard',          href: safeRoute('admin.dashboard'),                     icon: LayoutGrid     },
+            { title: 'Users',              href: safeRoute('users.index'),                         icon: Users          },
+            { title: 'Student Overview',   href: safeRoute('student-fees.index'),                  icon: GraduationCap  },
+            { title: 'Student Archive',    href: safeRoute('students.archive'),                    icon: History        },
+            { title: 'Financial Reports',  href: safeRoute('accounting.financial-reports'),        icon: BarChart3      },
             { title: 'Curriculum Presets', href: safeRoute('accounting.curriculum-presets.index'), icon: LayoutTemplate },
-            { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen      },
+            { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen       },
             {
                 title: 'Registration Approvals',
                 href:  safeRoute('accounting.registrations.index'),
@@ -85,8 +85,8 @@ const mainNavItems = computed<NavItem[]>(() => {
                 badge: queueCount > 0 ? String(queueCount) : undefined,
             },
             { title: 'Curriculum Presets', href: safeRoute('accounting.curriculum-presets.index'), icon: LayoutTemplate },
-            { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen      },
-            { title: 'Notifications',      href: safeRoute('accounting.notifications.index'),      icon: Bell          },
+            { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen       },
+            { title: 'Notifications',      href: safeRoute('accounting.notifications.index'),      icon: Bell           },
         ];
     }
 
@@ -100,7 +100,6 @@ const mainNavItems = computed<NavItem[]>(() => {
         // Disbursing Officer + Cashier: see fee management
         if (isDisbursingOfficer.value || isCashier.value) {
             items.push({ title: 'Student Fee Management', href: safeRoute('student-fees.index'), icon: Receipt });
-            items.push({ title: 'Auto Assessment', href: safeRoute('accounting.auto-assess.index'), icon: Zap });
         }
 
         // Disbursing Officer only: payment approvals, fee settings, registration approvals,
@@ -114,9 +113,9 @@ const mainNavItems = computed<NavItem[]>(() => {
                     icon:  ClipboardList,
                     badge: financeQueue > 0 ? String(financeQueue) : undefined,
                 },
-                { title: 'Fee Settings',       href: safeRoute('accounting.fee-settings.index'),           icon: Settings       },
-                { title: 'Curriculum Presets', href: safeRoute('accounting.curriculum-presets.index'),     icon: LayoutTemplate },
-                { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),               icon: BookOpen       },
+                { title: 'Fee Settings',       href: safeRoute('accounting.fee-settings.index'),       icon: Settings       },
+                { title: 'Curriculum Presets', href: safeRoute('accounting.curriculum-presets.index'), icon: LayoutTemplate },
+                { title: 'Subjects',           href: safeRoute('accounting.subjects.index'),           icon: BookOpen       },
             );
         }
 

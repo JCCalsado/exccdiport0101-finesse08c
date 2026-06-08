@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Accounting\AutoAssessmentController;
 use App\Http\Controllers\Accounting\CurriculumPresetController;
 use App\Http\Controllers\Accounting\FinancialReportsController;
 use App\Http\Controllers\Accounting\FeeSettingsController;
@@ -189,17 +188,6 @@ Route::middleware(['auth', 'verified', 'role:accounting,admin'])->prefix('accoun
             Route::post('/',                  [PresetSubjectController::class, 'store'])  ->name('store');
             Route::delete('/{presetSubject}', [PresetSubjectController::class, 'destroy'])->name('destroy');
             Route::post('/sync',              [PresetSubjectController::class, 'sync'])   ->name('sync');
-        });
-
-    // Auto-Assessment Routes
-    // Role: accounting + admin. Policy: disbursing_officer + admin.
-    Route::middleware(['auth', 'verified', 'role:accounting,admin'])
-        ->prefix('auto-assess')
-        ->name('auto-assess.')
-        ->group(function () {
-            Route::get('/',        [AutoAssessmentController::class, 'index'])  ->name('index');
-            Route::post('/preview', [AutoAssessmentController::class, 'preview'])->name('preview');
-            Route::post('/generate', [AutoAssessmentController::class, 'generate'])->name('generate');
         });
 
     Route::post('/payment-terms/{paymentTerm}/due-date', [PaymentTermsController::class, 'updateDueDate'])->name('payment-terms.update-due-date');
