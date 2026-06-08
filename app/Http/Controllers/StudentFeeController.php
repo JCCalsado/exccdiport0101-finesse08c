@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\AssessmentSubject;
 use App\Models\CourseUnitPreset;
 use App\Models\Student;
+use App\Models\StudentStatusLog;
 use App\Models\Subject;
 use App\Models\StudentAssessment;
 use App\Models\StudentPaymentTerm;
@@ -1073,6 +1074,7 @@ class StudentFeeController extends Controller
 
     public function subjectSearch(Request $request): \Illuminate\Http\JsonResponse
     {
+        $this->authorize('viewAny', StudentAssessment::class);
         $q      = trim($request->get('q', ''));
         $course = $request->get('course', '');
 
@@ -1116,6 +1118,7 @@ class StudentFeeController extends Controller
 
     public function getCurriculumUnits(Request $request): \Illuminate\Http\JsonResponse
     {
+        $this->authorize('viewAny', StudentAssessment::class);
         $validated = $request->validate([
             'student_id' => 'required|exists:users,id',
             'semester'   => 'required|string',
@@ -1226,6 +1229,7 @@ class StudentFeeController extends Controller
 
     public function getLatestAssessmentData(Request $request): \Illuminate\Http\JsonResponse
     {
+        $this->authorize('view', StudentAssessment::class);
         $validated = $request->validate(['student_id' => 'required|exists:users,id']);
 
         $latest = StudentAssessment::where('user_id', $validated['student_id'])
@@ -1249,6 +1253,7 @@ class StudentFeeController extends Controller
 
     public function exportPdf(Request $request, int $userId)
     {
+        $this->authorize('view', StudentAssessment::class);
         $user = User::with('account', 'student')->findOrFail($userId);
 
         $assessmentId = $request->query('assessment_id');
@@ -1406,6 +1411,7 @@ class StudentFeeController extends Controller
 
     public function createStudent(): Response
     {
+        $this->authorize('create', StudentAssessment::class);
         $courses    = \App\Models\Subject::distinct()->pluck('course')->sort()->values();
         $yearLevels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
 
@@ -1421,6 +1427,7 @@ class StudentFeeController extends Controller
 
     public function storeStudent(Request $request)
     {
+        $this->authorize('create', StudentAssessment::class);
         $request->validate([
             'last_name'                => 'required|string|max:255',
             'first_name'               => 'required|string|max:255',
@@ -1492,6 +1499,7 @@ class StudentFeeController extends Controller
 
     public function editStudent(Student $student): Response
     {
+        $this->authorize('update', StudentAssessment::class);
         $student->load('user');
 
         if (!$student->user) {
@@ -1514,6 +1522,7 @@ class StudentFeeController extends Controller
 
     public function updateStudent(Request $request, Student $student)
     {
+        $this->authorize('update', StudentAssessment::class);
         $validated = $request->validate([
             'student_id'                => 'required|string|unique:students,student_id,' . $student->id,
             'first_name'                => 'required|string|max:255',
@@ -1655,6 +1664,65 @@ class StudentFeeController extends Controller
             Log::error('storePayment failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
             return back()->withErrors(['payment' => 'Payment processing failed: ' . $e->getMessage()]);
         }
+    }
+
+
+    // ─────────────────────────────────────────────────────────────
+    //  DROP STUDENT
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Mark a student as Dropped.
+     *
+     * Authorization: Disbursing Officer only (via StudentFeePolicy::delete).
+     * Side effects:
+     *   - Sets students.enrollment_status → 'dropped'
+     *   - Sets users.status → 'dropped'
+     *   - Writes a StudentStatusLog audit entry
+     *   - Does NOT soft-delete the student record (must remain visible in archive)
+     *
+     * Route: POST /student-fees/{user}/drop
+     *        web.php: name('student-fees.drop')
+     */
+    public function drop(Request $request, int $user): RedirectResponse
+    {
+        $this->authorize('delete', StudentAssessment::class);
+
+        $targetUser = User::with('student')->findOrFail($user);
+
+        if (! $targetUser->student) {
+            abort(404, 'Student profile not found for this user.');
+        }
+
+        $student = $targetUser->student;
+
+        if ($student->enrollment_status === 'dropped') {
+            return back()->withErrors(['error' => 'This student is already marked as Dropped.']);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:500'],
+        ]);
+
+        DB::transaction(function () use ($student, $targetUser, $validated) {
+            $fromStatus = $student->enrollment_status;
+
+            $student->update(['enrollment_status' => 'dropped']);
+            $targetUser->update(['status' => User::STATUS_DROPPED]);
+
+            StudentStatusLog::create([
+                'student_id'  => $student->id,
+                'changed_by'  => auth()->id(),
+                'from_status' => $fromStatus,
+                'to_status'   => 'dropped',
+                'reason'      => $validated['reason'],
+                'action'      => 'drop',
+            ]);
+        });
+
+        return redirect()
+            ->route('student-fees.index')
+            ->with('success', "Student {$this->buildStudentName($targetUser)} has been marked as Dropped.");
     }
 
     // ─────────────────────────────────────────────────────────────

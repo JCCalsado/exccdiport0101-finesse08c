@@ -30,12 +30,26 @@ class RegistrarController extends Controller
     public function dashboard(): Response
     {
         $this->authorize('viewRegistrarQueue', StudentRegistration::class);
-        $clearedToday    = StudentRegistration::where('status', 'registrar_cleared')
+
+        // Pending = registrar's actionable queue: PENDING + NEEDS_REVISION/registrar stage.
+        // BUG FIX: $queueCount was referenced but never assigned in the original code,
+        // causing a fatal ErrorException whenever any registrar loaded their dashboard.
+        $queueCount = StudentRegistration::where(function ($q) {
+                $q->where('status', RegistrationStatusEnum::PENDING->value)
+                  ->orWhere(function ($r) {
+                      $r->where('status', RegistrationStatusEnum::NEEDS_REVISION->value)
+                        ->where('revision_stage', 'registrar');
+                  });
+            })
+            ->count();
+
+        $clearedToday  = StudentRegistration::where('status', RegistrationStatusEnum::REGISTRAR_CLEARED->value)
                             ->whereDate('registrar_reviewed_at', today())
                             ->count();
-        $rejectedCount   = StudentRegistration::where('status', 'rejected_by_registrar')->count();
-        $presetCount     = CurriculumFeePreset::count();
-        $subjectCount    = Subject::count();
+        $rejectedCount = StudentRegistration::where('status', RegistrationStatusEnum::REJECTED_BY_REGISTRAR->value)
+                            ->count();
+        $presetCount   = CurriculumFeePreset::count();
+        $subjectCount  = Subject::count();
 
         return Inertia::render('Registrar/Dashboard', [
             'stats' => [
@@ -142,10 +156,6 @@ class RegistrarController extends Controller
     /**
      * Clear the registration academically (Registrar stage approval).
      * Sets status → registrar_cleared. Forwards to the Finance queue.
-     *
-     * FIX: Was using $registration->notify(...) which fails silently because
-     * StudentRegistration does not have the Notifiable trait. Switched to the
-     * Notification::route() facade pattern (same as RegistrationApprovalController).
      */
     public function registrationApprove(StudentRegistration $registration): RedirectResponse
     {
@@ -197,8 +207,6 @@ class RegistrarController extends Controller
     /**
      * Reject at the Registrar stage.
      * Sets status → rejected_by_registrar. Terminal state.
-     *
-     * FIX: Same Notifiable-trait issue as approve(). Switched to facade.
      */
     public function registrationReject(
         RejectRegistrationRequest $request,
@@ -214,7 +222,7 @@ class RegistrarController extends Controller
             'registrar_reviewed_at'       => now(),
         ]);
 
-        // Notify applicant — rejected with reason, must visit Registrar's office.
+        // Notify applicant — rejected with reason.
         try {
             Notification::route('mail', $registration->email)
                 ->notify(new \App\Notifications\RegistrationRejectedByRegistrar($registration));
@@ -248,10 +256,8 @@ class RegistrarController extends Controller
             'revision_stage'           => 'registrar',
         ]);
 
-        // Notify applicant — academic documents need revision.
-        // NOTE: RegistrationNeedsRevision reads $registration->revision_notes (Finance)
-        //       not registrar_revision_notes. The student-facing RegistrationRevise.vue
-        //       must display registrar_revision_notes when revision_stage = 'registrar'.
+        // RegistrationNeedsRevision is now stage-aware — it reads
+        // registrar_revision_notes when revision_stage = 'registrar'.
         try {
             Notification::route('mail', $registration->email)
                 ->notify(new \App\Notifications\RegistrationNeedsRevision($registration));
