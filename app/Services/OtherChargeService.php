@@ -15,18 +15,10 @@ class OtherChargeService
 {
     // ─── Student-facing ───────────────────────────────────────────────────────
 
-    /**
-     * Get all published, active Other Charges that apply to a given student,
-     * annotated with payment status for that student.
-     *
-     * Matching is dynamic — late enrollees automatically qualify if their
-     * active assessment matches the charge filters.
-     *
-     * @return Collection<array>
-     */
     public function getChargesForStudent(User $student): Collection
     {
-        $assessment = StudentAssessment::where('user_id', $student->id)
+        // FIX: was studentAssessments() — correct relationship name is assessments()
+        $assessment = $student->assessments()
             ->where('status', 'active')
             ->latest()
             ->first();
@@ -35,7 +27,6 @@ class OtherChargeService
             return collect();
         }
 
-        // Build base query matching this student's active assessment dimensions
         $charges = OtherCharge::published()
             ->active()
             ->where('school_year', $assessment->school_year)
@@ -81,46 +72,41 @@ class OtherChargeService
                 'course'                    => $charge->course,
                 'published_at'              => $charge->published_at?->format('Y-m-d'),
                 'updated_after_publish_at'  => $charge->updated_after_publish_at?->format('Y-m-d H:i'),
-                'status'                    => $status,     // 'unpaid' | 'pending' | 'awaiting_approval' | 'paid'
+                'status'                    => $status,
                 'amount_paid'               => $amountPaid,
                 'paid_at'                   => $paidAt,
                 'or_number'                 => $orNumber,
-                'payment_id'                => $payment?->id,
+                'payment_id'               => $payment?->id,
             ];
         });
     }
 
     // ─── Accounting-facing ────────────────────────────────────────────────────
 
-    /**
-     * Get all students who match a charge's filters, with their payment status.
-     * Used by the accounting Show page.
-     *
-     * @return Collection<array>
-     */
     public function getStudentsForCharge(OtherCharge $charge): Collection
     {
         $students = $charge->buildMatchingStudentsQuery()
             ->with([
-                'studentAssessments' => fn ($q) => $q->where('status', 'active')->latest()->limit(1),
+                // FIX: correct relationship name
+                'assessments' => fn ($q) => $q->where('status', 'active')->latest()->limit(1),
             ])
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->get();
 
-        // Load all payments for this charge in one query
         $payments = OtherChargePayment::where('other_charge_id', $charge->id)
             ->get()
             ->keyBy('user_id');
 
         return $students->map(function (User $student) use ($charge, $payments) {
             $payment    = $payments->get($student->id);
-            $assessment = $student->studentAssessments->first();
+            // FIX: correct relationship name
+            $assessment = $student->assessments->first();
 
-            $status     = 'unpaid';
-            $amountPaid = 0.0;
-            $paidAt     = null;
-            $orNumber   = null;
+            $status          = 'unpaid';
+            $amountPaid      = 0.0;
+            $paidAt          = null;
+            $orNumber        = null;
             $collectedByName = null;
 
             if ($payment) {
@@ -132,33 +118,24 @@ class OtherChargeService
             }
 
             return [
-                'user_id'          => $student->id,
-                'name'             => $student->name,
-                'account_id'       => $student->account_id,
-                'course'           => $assessment?->course ?? $student->course,
-                'year_level'       => $assessment?->year_level ?? $student->year_level,
-                'semester'         => $assessment?->semester,
-                'status'           => $status,
-                'amount_paid'      => $amountPaid,
-                'balance'          => $status === 'paid' ? 0.0 : (float) $charge->amount,
-                'paid_at'          => $paidAt,
-                'or_number'        => $orNumber,
-                'collected_by'     => $collectedByName,
-                'payment_id'       => $payment?->id,
-                'payment_method'   => $payment?->payment_method,
+                'user_id'        => $student->id,
+                'name'           => $student->name,
+                'account_id'     => $student->account_id ?? '',
+                'course'         => $assessment?->course,
+                'year_level'     => $assessment?->year_level,
+                'semester'       => $assessment?->semester,
+                'status'         => $status,
+                'amount_paid'    => $amountPaid,
+                'balance'        => $status === 'paid' ? 0.0 : (float) $charge->amount,
+                'paid_at'        => $paidAt,
+                'or_number'      => $orNumber,
+                'collected_by'   => $collectedByName,
+                'payment_id'     => $payment?->id,
+                'payment_method' => $payment?->payment_method,
             ];
         });
     }
 
-    /**
-     * Record an OTC (over-the-counter) payment by accounting staff.
-     *
-     * Guards:
-     *   - No existing paid record for this student+charge
-     *   - Amount must equal charge amount (full payment only)
-     *
-     * @throws \RuntimeException
-     */
     public function recordOtcPayment(
         OtherCharge $charge,
         User        $student,
@@ -166,7 +143,6 @@ class OtherChargeService
         ?string     $notes,
         User        $collectedBy,
     ): OtherChargePayment {
-        // Guard: already paid
         $existing = OtherChargePayment::where('other_charge_id', $charge->id)
             ->where('user_id', $student->id)
             ->where('status', 'paid')
@@ -178,7 +154,6 @@ class OtherChargeService
             );
         }
 
-        // Guard: student must match charge filters
         if (! $charge->matchesStudent($student)) {
             throw new \RuntimeException(
                 "Student {$student->name} does not match the target group for this charge."
@@ -186,7 +161,6 @@ class OtherChargeService
         }
 
         return DB::transaction(function () use ($charge, $student, $orNumber, $notes, $collectedBy) {
-            // Cancel any pending online attempts for this student+charge
             OtherChargePayment::where('other_charge_id', $charge->id)
                 ->where('user_id', $student->id)
                 ->whereIn('status', ['pending', 'awaiting_proof', 'awaiting_approval'])
@@ -206,7 +180,6 @@ class OtherChargeService
 
             Log::info('OtherChargeService: OTC payment recorded', [
                 'charge_id'    => $charge->id,
-                'charge_title' => $charge->title,
                 'student_id'   => $student->id,
                 'or_number'    => $orNumber,
                 'collected_by' => $collectedBy->id,
@@ -219,23 +192,12 @@ class OtherChargeService
 
     // ─── PayMongo Online Payment ──────────────────────────────────────────────
 
-    /**
-     * Initiate a PayMongo checkout session for an Other Charge online payment.
-     *
-     * Creates the OtherChargePayment row with status=pending BEFORE calling
-     * PayMongo — ensures the webhook always has a row to find.
-     *
-     * @return array ['checkout_url' => string, 'session_id' => string]
-     * @throws \RuntimeException
-     */
     public function initiateOnlinePayment(OtherCharge $charge, User $student): array
     {
-        // Guard: already paid
         if (! $charge->isOwedByStudent($student)) {
             throw new \RuntimeException('This charge has already been paid.');
         }
 
-        // Guard: no duplicate pending
         $existingPending = OtherChargePayment::where('other_charge_id', $charge->id)
             ->where('user_id', $student->id)
             ->whereIn('status', ['pending', 'awaiting_approval'])
@@ -249,7 +211,6 @@ class OtherChargeService
 
         $amountCents = (int) round((float) $charge->amount * 100);
 
-        // Create pending row first — webhook safety net
         $payment = OtherChargePayment::create([
             'other_charge_id' => $charge->id,
             'user_id'         => $student->id,
@@ -265,17 +226,17 @@ class OtherChargeService
                 ->post('https://api.paymongo.com/v1/checkout_sessions', [
                     'data' => [
                         'attributes' => [
-                            'amount'          => $amountCents,
-                            'currency'        => 'PHP',
-                            'description'     => $charge->title,
+                            'amount'               => $amountCents,
+                            'currency'             => 'PHP',
+                            'description'          => $charge->title,
                             'payment_method_types' => ['gcash', 'card', 'paymaya'],
-                            'success_url'     => route('student.other-charges.index') . '?payment=success',
-                            'cancel_url'      => route('student.other-charges.index') . '?payment=cancelled',
-                            'metadata'        => [
-                                'type'                  => 'other_charge',
-                                'other_charge_id'       => $charge->id,
+                            'success_url'          => route('student.other-charges.index') . '?payment=success',
+                            'cancel_url'           => route('student.other-charges.index') . '?payment=cancelled',
+                            'metadata'             => [
+                                'type'                    => 'other_charge',
+                                'other_charge_id'         => $charge->id,
                                 'other_charge_payment_id' => $payment->id,
-                                'student_id'            => $student->id,
+                                'student_id'              => $student->id,
                             ],
                             'line_items' => [[
                                 'currency' => 'PHP',
@@ -291,11 +252,10 @@ class OtherChargeService
                 throw new \RuntimeException('PayMongo checkout session creation failed: ' . $response->body());
             }
 
-            $session    = $response->json('data');
-            $sessionId  = data_get($session, 'id');
+            $session     = $response->json('data');
+            $sessionId   = data_get($session, 'id');
             $checkoutUrl = data_get($session, 'attributes.checkout_url');
 
-            // Store session ID on the payment row
             $payment->update([
                 'paymongo_session_id' => $sessionId,
                 'reference'           => "OC-{$sessionId}",
@@ -305,7 +265,6 @@ class OtherChargeService
                 'charge_id'  => $charge->id,
                 'student_id' => $student->id,
                 'session_id' => $sessionId,
-                'amount'     => $charge->amount,
             ]);
 
             return [
@@ -314,7 +273,6 @@ class OtherChargeService
             ];
 
         } catch (\Throwable $e) {
-            // Payment row was pre-created — mark it failed so it doesn't block future attempts
             $payment->update(['status' => 'cancelled']);
 
             Log::error('OtherChargeService: checkout session failed', [
@@ -327,10 +285,6 @@ class OtherChargeService
         }
     }
 
-    /**
-     * Handle a confirmed PayMongo payment for an Other Charge.
-     * Called by ProcessPaymongoWebhook job when it detects an other_charge payment.
-     */
     public function handleWebhookPaid(string $sessionId, string $paymentIntentId): void
     {
         $payment = OtherChargePayment::where('paymongo_session_id', $sessionId)
@@ -345,11 +299,7 @@ class OtherChargeService
             return;
         }
 
-        // Idempotency: already paid
         if ($payment->status === 'paid') {
-            Log::info('OtherChargeService::handleWebhookPaid: already paid, skipping', [
-                'payment_id' => $payment->id,
-            ]);
             return;
         }
 
@@ -364,14 +314,10 @@ class OtherChargeService
             'payment_id'        => $payment->id,
             'other_charge_id'   => $payment->other_charge_id,
             'student_id'        => $payment->user_id,
-            'payment_intent_id' => $paymentIntentId,
             'amount'            => $payment->amount_paid,
         ]);
     }
 
-    /**
-     * Handle a failed PayMongo payment for an Other Charge.
-     */
     public function handleWebhookFailed(string $sessionId, string $paymentIntentId): void
     {
         OtherChargePayment::where('paymongo_session_id', $sessionId)

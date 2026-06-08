@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\DB;
 
 class OtherCharge extends Model
 {
@@ -81,19 +80,12 @@ class OtherCharge extends Model
 
     /**
      * Determine whether this charge applies to a given student.
-     *
-     * Matching rules (ALL must pass):
-     *   school_year   — always required, must match student's active assessment
-     *   semester      — if set on charge, must match; null = any semester
-     *   year_level    — if set on charge, must match; null = any year level
-     *   course        — if set on charge, must match; null = any course
-     *
-     * The student's active assessment is the source of their current
-     * school_year, semester, year_level, and course.
+     * Uses User::assessments() — the correct relationship name on the User model.
      */
     public function matchesStudent(User $student): bool
     {
-        $assessment = $student->studentAssessments()
+        // FIX: was studentAssessments() — correct name is assessments()
+        $assessment = $student->assessments()
             ->where('status', 'active')
             ->latest()
             ->first();
@@ -138,8 +130,6 @@ class OtherCharge extends Model
 
     /**
      * Get the amount still owed by a student for this charge.
-     * Returns 0 if already paid, full amount if not.
-     * (Full payment only — no partial tracking needed.)
      */
     public function balanceForStudent(User $student): float
     {
@@ -153,7 +143,6 @@ class OtherCharge extends Model
 
     /**
      * Count of students who match this charge's filters.
-     * Joins to student_assessments for filter matching.
      */
     public function matchingStudentCount(): int
     {
@@ -162,12 +151,13 @@ class OtherCharge extends Model
 
     /**
      * Query builder for students matching this charge's filters.
-     * Used by OtherChargeService::getStudentsForCharge().
+     * Uses assessments() — correct relationship name on User model.
      */
     public function buildMatchingStudentsQuery()
     {
-        $query = User::where('role', 'student')
-            ->whereHas('studentAssessments', function ($q) {
+        // FIX: was studentAssessments() — correct name is assessments()
+        return User::where('role', 'student')
+            ->whereHas('assessments', function ($q) {
                 $q->where('status', 'active')
                   ->where('school_year', $this->school_year);
 
@@ -181,7 +171,5 @@ class OtherCharge extends Model
                     $q->where('course', $this->course);
                 }
             });
-
-        return $query;
     }
 }
