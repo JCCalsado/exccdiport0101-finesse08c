@@ -4,9 +4,13 @@ use App\Http\Controllers\Api\WorkflowApiController;
 use App\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Route;
 
-// ── Webhook (NO auth — PayMongo calls this directly) ──────────────────────
-Route::post('webhooks/paymongo', [PaymentController::class, 'webhook'])
-    ->name('paymongo.webhook');
+// ── PayMongo webhook is registered in routes/web.php as:
+//    POST /webhook/paymongo → PaymongoWebhookController::handle
+//    (CSRF-exempt via bootstrap/app.php validateCsrfTokens except list)
+//
+// The previous entry here (PaymentController::webhook) was pointing to a
+// non-existent method and has been removed to prevent 500 errors if this
+// URL is ever accidentally used as the webhook endpoint.
 
 Route::middleware('auth:sanctum')->group(function () {
     // ── Payment routes ─────────────────────────────────────────────────────
@@ -15,7 +19,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 Route::middleware('auth')->group(function () {
 
-    // ── Existing Workflow routes ───────────────────────────────────────────
+    // ── Workflow routes ────────────────────────────────────────────────────
     Route::get('workflows', [WorkflowApiController::class, 'index']);
     Route::get('workflows/{workflow}', [WorkflowApiController::class, 'show']);
     Route::get('workflows/{workflow}/instances', [WorkflowApiController::class, 'instances']);

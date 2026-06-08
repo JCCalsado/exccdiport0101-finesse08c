@@ -27,22 +27,7 @@ use Inertia\Response;
 class RegistrationApprovalController extends Controller
 {
     /**
-     * ─────────────────────────────────────────────────────────────────────────
-     * FINANCE STAGE (Disbursing Officer)
-     *
-     * This controller handles the second stage of the two-stage registration
-     * workflow. Records arrive here ONLY after the Registrar has cleared them
-     * academically (status = registrar_cleared).
-     *
-     * The Registrar stage is handled by RegistrarController.
-     * ─────────────────────────────────────────────────────────────────────────
-     */
-
-    /**
      * List registrations in the Finance queue.
-     *
-     * Finance queue = registrar_cleared + needs_revision (revision_stage = 'finance').
-     * Admin sees all statuses via the 'all' filter.
      */
     public function index(Request $request): Response
     {
@@ -50,7 +35,6 @@ class RegistrationApprovalController extends Controller
 
         $status = $request->get('status', 'registrar_cleared');
         $search = $request->get('search');
-        $user   = $request->user();
 
         $query = StudentRegistration::query()
             ->when($status === 'registrar_cleared', fn($q) =>
@@ -79,7 +63,10 @@ class RegistrationApprovalController extends Controller
                           ->orWhere('contact_number', 'like', "%{$s}%");
                 });
             })
-            ->with(['reviewer:id,first_name,last_name', 'registrarReviewer:id,first_name,last_name'])
+            ->with([
+                'reviewer:id,first_name,last_name',
+                'registrarReviewer:id,first_name,last_name',
+            ])
             ->orderBy('submitted_at', 'desc')
             ->paginate(20)
             ->withQueryString();
@@ -99,10 +86,6 @@ class RegistrationApprovalController extends Controller
         ]);
     }
 
-    /**
-     * Show the full detail of a registration for Finance review.
-     * Includes Registrar stage info for context.
-     */
     public function show(StudentRegistration $registration): Response
     {
         $this->authorize('viewFinanceQueue', StudentRegistration::class);
@@ -112,8 +95,23 @@ class RegistrationApprovalController extends Controller
             'registrarReviewer:id,first_name,last_name',
         ]);
 
-        $duplicates   = $registration->detectDuplicates();
-        $existingUser = $registration->findMatchingUser();
+        $duplicates    = $registration->detectDuplicates();
+        $matchResult   = $registration->findMatchingUser();
+
+        // Serialize existingUser for the frontend — null, or a typed object
+        // with is_same_person so the UI can render the correct message.
+        $existingUser = null;
+        if ($matchResult) {
+            $u = $matchResult['user'];
+            $existingUser = [
+                'id'             => $u->id,
+                'name'           => $u->name,
+                'email'          => $u->email,
+                'account_id'     => $u->account_id,
+                'is_active'      => $u->is_active,
+                'is_same_person' => $matchResult['is_same_person'],
+            ];
+        }
 
         return Inertia::render('Accounting/RegistrationApprovals/Show', [
             'registration' => $this->serializeForDetail($registration),
@@ -125,12 +123,7 @@ class RegistrationApprovalController extends Controller
                 'status'         => $d->status->value,
                 'submitted_at'   => $d->submitted_at?->format('M d, Y'),
             ]),
-            'existingUser' => $existingUser ? [
-                'id'        => $existingUser->id,
-                'name'      => $existingUser->name,
-                'email'     => $existingUser->email,
-                'is_active' => $existingUser->is_active,
-            ] : null,
+            'existingUser' => $existingUser,
             'documentUrls' => [
                 'valid_id' => $registration->valid_id_path
                     ? route('accounting.registrations.document', [$registration, 'valid_id'])
@@ -145,20 +138,111 @@ class RegistrationApprovalController extends Controller
     /**
      * Finance-stage approval.
      *
-     * Creates: User → Student → Account.
-     * Precondition: registration must be in Finance queue (registrar_cleared).
+     * Two paths:
+     *
+     * A) No existing User with this email → normal path.
+     *    Creates: User → Student → Account.
+     *
+     * B) Existing User with same name (returning student / transferee).
+     *    Does NOT create a new User. Updates the existing user's enrollment
+     *    data (course, year_level) and reactivates the account if needed.
+     *    The Student and Account rows already exist — no duplication.
+     *
+     * C) Existing User with different name (genuine email collision).
+     *    Hard block — cannot approve. DO must reject and contact applicant.
      */
     public function approve(StudentRegistration $registration): RedirectResponse
     {
         $this->authorize('actAsFinance', $registration);
         $this->ensureFinanceActionable($registration);
 
-        if ($registration->findMatchingUser()) {
-            return back()->with('flash.error', 'A user with this email already exists. Cannot approve duplicate.');
+        $matchResult = $registration->findMatchingUser();
+
+        // Path C: genuine email collision — different person, hard block.
+        if ($matchResult && ! $matchResult['is_same_person']) {
+            return back()->with(
+                'flash.error',
+                'A different person with the email ' . $registration->email . ' already exists (ID: ' . $matchResult['user']->id . '). Cannot approve — this would overwrite another user\'s account. Reject this registration and ask the applicant to use a different email.'
+            );
         }
 
         DB::beginTransaction();
         try {
+            // ── PATH B: returning student — link to existing User ─────────────
+            if ($matchResult && $matchResult['is_same_person']) {
+                $user = $matchResult['user'];
+
+                // Update enrollment-relevant fields on the existing user.
+                // Do NOT overwrite password, account_id, or role.
+                $user->update([
+                    'course'                    => $registration->course,
+                    'year_level'                => $registration->year_level,
+                    'phone'                     => $registration->contact_number,
+                    'gender'                    => $registration->gender,
+                    'civil_status'              => $registration->civil_status,
+                    'birthday'                  => $registration->birthdate,
+                    'address_house_lot_unit'    => $registration->address_house,
+                    'address_street_name'       => $registration->address_street,
+                    'address_barangay'          => $registration->address_barangay,
+                    'address_municipality_city' => $registration->address_city,
+                    'address_province'          => $registration->address_province,
+                    'address_zip'               => $registration->address_zip,
+                    'guardian_name'             => $registration->guardian_name,
+                    'guardian_contact'          => $registration->guardian_contact,
+                    'emergency_contact'         => $registration->emergency_contact,
+                    'is_irregular'              => in_array($registration->student_type, ['irregular'], true),
+                    'status'                    => User::STATUS_ACTIVE,
+                    'is_active'                 => true,
+                ]);
+
+                // Ensure the Student row exists (may have been soft-dropped).
+                Student::firstOrCreate(
+                    ['user_id' => $user->id],
+                    ['student_id' => $user->account_id, 'enrollment_status' => 'active']
+                );
+                Student::where('user_id', $user->id)
+                    ->update(['enrollment_status' => 'active']);
+
+                // Ensure an Account row exists.
+                Account::firstOrCreate(
+                    ['user_id' => $user->id],
+                    ['account_number' => Account::generateAccountNumber(), 'balance' => 0]
+                );
+
+                $registration->update([
+                    'status'         => RegistrationStatusEnum::APPROVED->value,
+                    'reviewed_by'    => auth()->id(),
+                    'reviewed_at'    => now(),
+                    'revision_stage' => null,
+                    'user_id'        => $user->id,
+                    'password_hash'  => null,
+                ]);
+
+                DB::commit();
+
+                try {
+                    Notification::route('mail', $registration->email)
+                        ->notify(new RegistrationApproved($registration, $user));
+                } catch (\Exception $e) {
+                    Log::warning('Failed to send approval notification (returning student)', [
+                        'registration_id' => $registration->id,
+                        'user_id'         => $user->id,
+                        'error'           => $e->getMessage(),
+                    ]);
+                }
+
+                Log::info('Finance approval: returning student linked to existing account', [
+                    'registration_id' => $registration->id,
+                    'user_id'         => $user->id,
+                    'account_id'      => $user->account_id,
+                ]);
+
+                return redirect()
+                    ->route('accounting.registrations.index')
+                    ->with('flash.success', "Registration approved. Existing account {$user->account_id} updated for {$user->first_name} {$user->last_name}.");
+            }
+
+            // ── PATH A: new student — create User + Student + Account ─────────
             $accountId    = $this->generateUniqueAccountId();
             $passwordHash = $registration->password_hash ?? Hash::make(str()->random(32));
             $usedFallback = ! $registration->password_hash;
@@ -210,12 +294,12 @@ class RegistrationApprovalController extends Controller
             ]);
 
             $registration->update([
-                'status'        => RegistrationStatusEnum::APPROVED->value,
-                'reviewed_by'   => auth()->id(),
-                'reviewed_at'   => now(),
+                'status'         => RegistrationStatusEnum::APPROVED->value,
+                'reviewed_by'    => auth()->id(),
+                'reviewed_at'    => now(),
                 'revision_stage' => null,
-                'user_id'       => $user->id,
-                'password_hash' => null,
+                'user_id'        => $user->id,
+                'password_hash'  => null,
             ]);
 
             DB::commit();
@@ -264,11 +348,10 @@ class RegistrationApprovalController extends Controller
         $this->ensureFinanceActionable($registration);
 
         $registration->update([
-            'status'           => RegistrationStatusEnum::REJECTED->value,
+            'status'       => RegistrationStatusEnum::REJECTED->value,
             'rejection_reason' => $request->rejection_reason,
-            'reviewed_by'      => auth()->id(),
-            'reviewed_at'      => now(),
-            'revision_stage'   => null,
+            'reviewed_by'  => auth()->id(),
+            'reviewed_at'  => now(),
         ]);
 
         try {
@@ -288,7 +371,6 @@ class RegistrationApprovalController extends Controller
 
     /**
      * Finance-stage revision request.
-     * Sets revision_stage = 'finance' so the resubmission returns to this queue.
      */
     public function requestRevision(
         RequestRevisionRequest $request,
@@ -298,11 +380,11 @@ class RegistrationApprovalController extends Controller
         $this->ensureFinanceActionable($registration);
 
         $registration->update([
-            'status'          => RegistrationStatusEnum::NEEDS_REVISION->value,
-            'revision_notes'  => $request->revision_notes,
-            'reviewed_by'     => auth()->id(),
-            'reviewed_at'     => now(),
-            'revision_stage'  => 'finance',
+            'status'         => RegistrationStatusEnum::NEEDS_REVISION->value,
+            'revision_notes' => $request->revision_notes,
+            'reviewed_by'    => auth()->id(),
+            'reviewed_at'    => now(),
+            'revision_stage' => 'finance',
         ]);
 
         try {
@@ -327,6 +409,12 @@ class RegistrationApprovalController extends Controller
     {
         $this->authorize('viewFinanceQueue', StudentRegistration::class);
 
+        $path = match ($type) {
+            'valid_id' => $registration->valid_id_path,
+            'proof'    => $registration->proof_of_enrollment_path,
+            default    => null,
+        };
+
         if (! $path || ! Storage::disk('private')->exists($path)) {
             abort(404);
         }
@@ -336,9 +424,6 @@ class RegistrationApprovalController extends Controller
 
     // ── Private Helpers ────────────────────────────────────────────────────
 
-    /**
-     * Abort if the registration is not in the Finance-stage queue.
-     */
     private function ensureFinanceActionable(StudentRegistration $registration): void
     {
         if ($registration->isApproved()) {
@@ -357,7 +442,6 @@ class RegistrationApprovalController extends Controller
             abort(422, 'This registration has not yet been reviewed by the Registrar. It cannot be processed at Finance.');
         }
 
-        // needs_revision is only Finance-actionable when revision_stage = 'finance'
         if ($registration->needsRevision() && $registration->revision_stage !== 'finance') {
             abort(422, 'This revision request belongs to the Registrar stage queue, not Finance.');
         }
@@ -451,26 +535,22 @@ class RegistrationApprovalController extends Controller
             'emergency_contact'           => $r->emergency_contact,
             'has_valid_id'                => ! empty($r->valid_id_path),
             'has_proof'                   => ! empty($r->proof_of_enrollment_path),
-            // ── Current status ──────────────────────────────────────────
             'status'                      => $r->status->value,
             'status_label'                => $r->status->label(),
             'status_color'                => $r->status->color(),
             'revision_stage'              => $r->revision_stage,
-            // ── Finance stage (this controller's domain) ────────────────
             'rejection_reason'            => $r->rejection_reason,
             'revision_notes'              => $r->revision_notes,
             'reviewed_at'                 => $r->reviewed_at?->format('F d, Y g:i A'),
             'reviewer_name'               => $r->reviewer
                 ? $r->reviewer->first_name . ' ' . $r->reviewer->last_name
                 : null,
-            // ── Registrar stage (context only — no actions here) ────────
             'registrar_reviewed_at'       => $r->registrar_reviewed_at?->format('F d, Y g:i A'),
             'registrar_reviewer_name'     => $r->registrarReviewer
                 ? $r->registrarReviewer->first_name . ' ' . $r->registrarReviewer->last_name
                 : null,
             'registrar_rejection_reason'  => $r->registrar_rejection_reason,
             'registrar_revision_notes'    => $r->registrar_revision_notes,
-            // ──────────────────────────────────────────────────────────
             'submitted_at'                => $r->submitted_at?->format('F d, Y g:i A'),
             'is_finance_actionable'       => $r->isFinanceActionable(),
         ];

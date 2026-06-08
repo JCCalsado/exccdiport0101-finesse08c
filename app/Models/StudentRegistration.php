@@ -39,12 +39,12 @@ class StudentRegistration extends Model
         'proof_of_enrollment_path',
         'password_hash',
         'status',
-        // ── Finance stage columns (existing, kept as-is) ──────────────────
+        // ── Finance stage columns ──────────────────────────────────────────
         'rejection_reason',
         'revision_notes',
         'reviewed_by',
         'reviewed_at',
-        // ── Registrar stage columns (new) ─────────────────────────────────
+        // ── Registrar stage columns ────────────────────────────────────────
         'registrar_reviewed_by',
         'registrar_reviewed_at',
         'registrar_rejection_reason',
@@ -69,17 +69,11 @@ class StudentRegistration extends Model
 
     // ── Relationships ──────────────────────────────────────────────────────
 
-    /**
-     * The Finance stage reviewer (Disbursing Officer).
-     */
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
     }
 
-    /**
-     * The Registrar stage reviewer.
-     */
     public function registrarReviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registrar_reviewed_by');
@@ -123,11 +117,6 @@ class StudentRegistration extends Model
         return $query->where('status', RegistrationStatusEnum::PENDING->value);
     }
 
-    /**
-     * Records actionable by the Registrar stage:
-     * - pending
-     * - needs_revision where revision_stage = 'registrar'
-     */
     public function scopeRegistrarQueue($query)
     {
         return $query->where(function ($q) {
@@ -139,11 +128,6 @@ class StudentRegistration extends Model
         });
     }
 
-    /**
-     * Records actionable by the Finance stage:
-     * - registrar_cleared
-     * - needs_revision where revision_stage = 'finance'
-     */
     public function scopeFinanceQueue($query)
     {
         return $query->where(function ($q) {
@@ -219,9 +203,33 @@ class StudentRegistration extends Model
             ->get(['id', 'first_name', 'last_name', 'email', 'contact_number', 'status', 'submitted_at']);
     }
 
-    public function findMatchingUser(): ?User
+    /**
+     * Find a matching User account by email and classify the relationship.
+     *
+     * Returns an array with:
+     *   - user:          the User model instance
+     *   - is_same_person: true if last_name + first_name match (case-insensitive)
+     *                     → returning student / transferee re-enrolling
+     *                     false if name differs
+     *                     → genuine email collision, hard block required
+     *
+     * Returns null if no user with this email exists (normal new-student path).
+     */
+    public function findMatchingUser(): ?array
     {
-        return User::where('email', $this->email)->first();
+        $user = User::where('email', $this->email)->first();
+
+        if (! $user) {
+            return null;
+        }
+
+        $isSamePerson = mb_strtolower(trim($user->last_name))  === mb_strtolower(trim($this->last_name))
+                     && mb_strtolower(trim($user->first_name)) === mb_strtolower(trim($this->first_name));
+
+        return [
+            'user'          => $user,
+            'is_same_person' => $isSamePerson,
+        ];
     }
 
     // ── Factory ───────────────────────────────────────────────────────────

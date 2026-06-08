@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, useForm, router } from '@inertiajs/vue3';
 import {
-    AlertTriangle, CheckCircle2, ChevronLeft, FileText, User, XCircle
+    AlertTriangle, CheckCircle2, ChevronLeft, FileText, User, XCircle, Info
 } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 
@@ -53,10 +53,19 @@ interface Registration {
     registrar_revision_notes: string | null;
 }
 
+interface ExistingUser {
+    id: number;
+    name: string;
+    email: string;
+    account_id: string;
+    is_active: boolean;
+    is_same_person: boolean;
+}
+
 const props = defineProps<{
     registration: Registration;
     duplicates: any[];
-    existingUser: any | null;
+    existingUser: ExistingUser | null;
     documentUrls: { valid_id: string | null; proof: string | null };
 }>();
 
@@ -85,8 +94,24 @@ const submitRevision = () => {
 // ── Approve ────────────────────────────────────────────────────────────────
 const approving = ref(false);
 
+// Hard block only when there's an existing user who is a DIFFERENT person.
+// Same-person match (returning student) is allowed through.
+const isHardBlocked = computed(() =>
+    props.existingUser !== null && !props.existingUser.is_same_person
+);
+
+const approveLabel = computed(() => {
+    if (approving.value) return 'Approving…';
+    if (props.existingUser?.is_same_person) return 'Approve (Returning Student)';
+    return 'Approve';
+});
+
 const approve = () => {
-    if (!confirm(`Approve the registration for ${props.registration.full_name}?\n\nThis will create their account immediately.`)) return;
+    const confirmMsg = props.existingUser?.is_same_person
+        ? `Approve the registration for ${props.registration.full_name}?\n\nThis person already has an account (${props.existingUser.account_id}). Approving will update their enrollment data — no new account will be created.`
+        : `Approve the registration for ${props.registration.full_name}?\n\nThis will create their account immediately.`;
+
+    if (!confirm(confirmMsg)) return;
     approving.value = true;
     router.post(
         route('accounting.registrations.approve', props.registration.id),
@@ -170,11 +195,11 @@ const studentTypeLabel: Record<string, string> = {
                         <button
                             v-if="canApprove"
                             @click="approve"
-                            :disabled="approving || !!existingUser"
+                            :disabled="approving || isHardBlocked"
                             class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
                         >
                             <CheckCircle2 class="h-4 w-4" />
-                            {{ approving ? 'Approving…' : 'Approve' }}
+                            {{ approveLabel }}
                         </button>
                     </template>
                 </div>
@@ -190,16 +215,41 @@ const studentTypeLabel: Record<string, string> = {
                 on {{ registration.registrar_reviewed_at }}.
             </div>
 
-            <!-- Warning: duplicate / existing user -->
+            <!-- Returning student notice (same person, existing account) -->
             <div
-                v-if="existingUser"
-                class="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+                v-if="existingUser && existingUser.is_same_person"
+                class="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800"
             >
-                <strong>⚠ Conflict:</strong> A user with the email <strong>{{ registration.email }}</strong>
-                already exists in the system (ID: {{ existingUser.id }} — {{ existingUser.name }}).
-                Approval is blocked to prevent duplicate accounts.
+                <div class="flex items-start gap-2">
+                    <Info class="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                        <strong>Returning student detected.</strong>
+                        An account already exists for <strong>{{ existingUser.name }}</strong>
+                        (Account ID: <code class="font-mono">{{ existingUser.account_id }}</code>,
+                        User ID: {{ existingUser.id }}).
+                        Approving will update their enrollment information — no duplicate account will be created.
+                    </div>
+                </div>
             </div>
 
+            <!-- Hard conflict (different person, same email) -->
+            <div
+                v-if="existingUser && !existingUser.is_same_person"
+                class="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+            >
+                <div class="flex items-start gap-2">
+                    <XCircle class="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                        <strong>⚠ Email conflict — approval blocked.</strong>
+                        A <em>different person</em> (<strong>{{ existingUser.name }}</strong>, ID: {{ existingUser.id }})
+                        already has the email <strong>{{ registration.email }}</strong> in the system.
+                        Approving would overwrite their account.
+                        Reject this registration and ask the applicant to resubmit with a different email address.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Duplicate registrations -->
             <div
                 v-if="duplicates.length > 0"
                 class="rounded-md border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800 space-y-2"
