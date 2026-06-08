@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\OtherCharge;
 use App\Models\Payment;
 use App\Models\StudentAssessment;
 use App\Models\StudentPaymentTerm;
 use App\Models\Transaction;
+use App\Services\OtherChargeService;
 use App\Enums\PaymentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +102,25 @@ class PaymentController extends Controller
 
             $availablePaymentMethods = ['bank_transfer'];
 
+            // ── Other Charges for this student ────────────────────────────────
+            // Passed to Payment/Create.vue so student can pay other charges
+            // directly from the payment page without navigating away.
+            $otherCharges = app(OtherChargeService::class)
+                ->getChargesForStudent($user)
+                ->map(fn ($charge) => [
+                    'id'                       => $charge['id'],
+                    'title'                    => $charge['title'],
+                    'description'              => $charge['description'],
+                    'amount'                   => $charge['amount'],
+                    'school_year'              => $charge['school_year'],
+                    'semester'                 => $charge['semester'],
+                    'year_level'               => $charge['year_level'],
+                    'status'                   => $charge['status'],
+                    'amount_paid'              => $charge['amount_paid'],
+                    'updated_after_publish_at' => $charge['updated_after_publish_at'],
+                ])
+                ->values();
+
             return Inertia::render('Payment/Create', [
                 'student' => [
                     'id'         => $user->id,
@@ -113,6 +134,7 @@ class PaymentController extends Controller
                 'pendingApprovalPayments' => $pendingApprovalPayments->values(),
                 'preselectedTermId'       => $request->query('term_id') ? (int) $request->query('term_id') : null,
                 'availablePaymentMethods' => $availablePaymentMethods,
+                'otherCharges'            => $otherCharges,
             ]);
         } catch (\Throwable $e) {
             Log::error('PaymentController::create() failed', [

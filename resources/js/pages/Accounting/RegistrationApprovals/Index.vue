@@ -31,14 +31,14 @@ const props = defineProps<{
 }>();
 
 const search = ref(props.filters.search ?? '');
-const activeStatus = ref(props.filters.status ?? 'pending');
+const activeStatus = ref(props.filters.status ?? 'registrar_cleared');
 
 const tabs = [
-    { key: 'pending',        label: 'Pending' },
-    { key: 'needs_revision', label: 'Needs Revision' },
-    { key: 'approved',       label: 'Approved' },
-    { key: 'rejected',       label: 'Rejected' },
-    { key: 'all',            label: 'All' },
+    { key: 'registrar_cleared', label: 'Awaiting Finance' },
+    { key: 'needs_revision',    label: 'Needs Revision' },
+    { key: 'approved',          label: 'Approved' },
+    { key: 'rejected',          label: 'Rejected' },
+    { key: 'all',               label: 'All' },
 ];
 
 let searchTimeout: ReturnType<typeof setTimeout>;

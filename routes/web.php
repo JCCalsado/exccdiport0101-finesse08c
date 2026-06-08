@@ -3,6 +3,7 @@
 use App\Http\Controllers\Accounting\CurriculumPresetController;
 use App\Http\Controllers\Accounting\FinancialReportsController;
 use App\Http\Controllers\Accounting\FeeSettingsController;
+use App\Http\Controllers\Accounting\OtherChargeController;
 use App\Http\Controllers\Accounting\PresetSubjectController;
 use App\Http\Controllers\Accounting\SubjectController;
 use App\Http\Controllers\AccountingDashboardController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymentReminderController;
 use App\Http\Controllers\PaymentTermsController;
 use App\Http\Controllers\RegistrarController;
+use App\Http\Controllers\Student\OtherChargeController as StudentOtherChargeController;
 use App\Http\Controllers\StudentAccountController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentDashboardController;
@@ -65,6 +67,10 @@ Route::middleware(['auth', 'verified', 'role:student'])->prefix('student')->grou
     Route::get('/notifications', [NotificationController::class, 'studentIndex'])->name('student.notifications');
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead'])->name('student.notifications.mark-all-read');
     Route::post('/notifications/{notification}/dismiss', [NotificationController::class, 'dismiss'])->name('notifications.dismiss');
+
+    // ── Other Charges — Student portal ───────────────────────────────────────
+    Route::get('/other-charges', [StudentOtherChargeController::class, 'index'])->name('student.other-charges.index');
+    Route::post('/other-charges/{otherCharge}/pay', [StudentOtherChargeController::class, 'initiatePayment'])->name('student.other-charges.pay');
 });
 
 // ============================================
@@ -190,8 +196,28 @@ Route::middleware(['auth', 'verified', 'role:accounting,admin'])->prefix('accoun
             Route::post('/sync',              [PresetSubjectController::class, 'sync'])   ->name('sync');
         });
 
-    Route::post('/payment-terms/{paymentTerm}/due-date', [PaymentTermsController::class, 'updateDueDate'])->name('payment-terms.update-due-date');
-    Route::post('/payment-terms/bulk-due-date', [PaymentTermsController::class, 'bulkUpdateDueDate'])->name('payment-terms.bulk-due-date');
+    Route::post('/payment-terms/{paymentTerm}/due-date', [PaymentTermsController::class, 'updateDueDate'])->name('admin.payment-terms.update-due-date');
+    Route::post('/payment-terms/bulk-due-date', [PaymentTermsController::class, 'bulkUpdateDueDate'])->name('admin.payment-terms.bulk-due-date');
+
+    // ── Other Charges — Accounting management ─────────────────────────────────
+    // Policy (OtherChargePolicy) enforces sub-role access:
+    //   viewAny/view  → disbursing_officer + cashier + bookkeeper + admin
+    //   create/update → disbursing_officer + admin
+    //   recordPayment → disbursing_officer + cashier + admin
+    Route::prefix('other-charges')
+        ->name('accounting.other-charges.')
+        ->group(function () {
+            Route::get('/',                          [OtherChargeController::class, 'index'])         ->name('index');
+            Route::get('/create',                    [OtherChargeController::class, 'create'])        ->name('create');
+            Route::post('/',                         [OtherChargeController::class, 'store'])         ->name('store');
+            Route::get('/preview-count',             [OtherChargeController::class, 'previewCount'])  ->name('preview-count');
+            Route::get('/{otherCharge}',             [OtherChargeController::class, 'show'])          ->name('show');
+            Route::get('/{otherCharge}/edit',        [OtherChargeController::class, 'edit'])          ->name('edit');
+            Route::put('/{otherCharge}',             [OtherChargeController::class, 'update'])        ->name('update');
+            Route::delete('/{otherCharge}',          [OtherChargeController::class, 'destroy'])       ->name('destroy');
+            Route::post('/{otherCharge}/publish',    [OtherChargeController::class, 'publish'])       ->name('publish');
+            Route::post('/{otherCharge}/payments',   [OtherChargeController::class, 'recordPayment']) ->name('payments.store');
+        });
 });
 
 // ============================================

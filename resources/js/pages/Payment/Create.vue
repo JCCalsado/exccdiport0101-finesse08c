@@ -5,7 +5,7 @@ import { useDataFormatting } from '@/composables/useDataFormatting';
 import { useMoney } from '@/composables/useMoney';
 import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
-import { AlertCircle, AlertTriangle, CheckCircle, Clock, Info, UploadCloud, XCircle } from 'lucide-vue-next';
+import { AlertCircle, AlertTriangle, BadgeDollarSign, CheckCircle, Clock, CreditCard, Info, RefreshCw, UploadCloud, XCircle } from 'lucide-vue-next';
 
 const { formatCurrency, formatDate } = useDataFormatting();
 const { toCents, fromCents } = useMoney();
@@ -44,6 +44,19 @@ type PendingPayment = {
     created_at: string;
 };
 
+type OtherCharge = {
+    id: number;
+    title: string;
+    description: string | null;
+    amount: number;
+    school_year: string;
+    semester: string | null;
+    year_level: string | null;
+    status: string;         // 'unpaid' | 'pending' | 'awaiting_approval' | 'paid'
+    amount_paid: number;
+    updated_after_publish_at: string | null;
+};
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 const props = withDefaults(
@@ -53,6 +66,7 @@ const props = withDefaults(
         pendingApprovalPayments: PendingPayment[];
         preselectedTermId?: number | null;
         availablePaymentMethods?: string[];
+        otherCharges?: OtherCharge[];
         student: {
             id: number;
             name: string;
@@ -66,8 +80,68 @@ const props = withDefaults(
         pendingApprovalPayments: () => [],
         preselectedTermId: null,
         availablePaymentMethods: () => ['bank_transfer'],
+        otherCharges: () => [],
     },
 );
+
+// ── Payment Mode — Assessment Balance vs Other Charge ─────────────────────────
+
+const paymentMode = ref<'assessment' | 'other_charge'>('assessment');
+const unpaidOtherCharges = computed(() =>
+    props.otherCharges?.filter((c) => c.status !== 'paid') ?? [],
+);
+const selectedChargeId = ref<number | null>(null);
+const selectedOtherCharge = computed(() =>
+    unpaidOtherCharges.value.find((c) => c.id === selectedChargeId.value) ?? null,
+);
+
+// Online payment state for other charges
+const isPayingOtherCharge = ref(false);
+const otherChargeError    = ref<string | null>(null);
+
+const payOtherChargeOnline = async () => {
+    if (!selectedOtherCharge.value) return;
+    isPayingOtherCharge.value = true;
+    otherChargeError.value    = null;
+
+    try {
+        const page      = usePage();
+        const csrfToken = (page.props.csrf_token as string) ?? '';
+
+        const response = await fetch(
+            route('student.other-charges.pay', selectedOtherCharge.value.id),
+            {
+                method:      'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type':     'application/json',
+                    'Accept':           'application/json',
+                    'X-CSRF-TOKEN':     csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || `Error: ${response.status}`);
+        }
+
+        if (!data.checkout_url) {
+            throw new Error('No checkout URL returned. Please try again.');
+        }
+
+        window.location.href = data.checkout_url;
+
+    } catch (err) {
+        otherChargeError.value = err instanceof Error
+            ? err.message
+            : 'Payment could not be initiated. Please try again.';
+    } finally {
+        isPayingOtherCharge.value = false;
+    }
+};
 
 // ── Breadcrumbs ───────────────────────────────────────────────────────────────
 
@@ -703,7 +777,120 @@ const dueDateUrgency = (dueDate: string | null): 'red' | 'amber' | 'green' | nul
                             Payment Details
                         </h2>
 
-                        <!-- Term selection -->
+                        <!-- ── Payment Mode Switcher ───────────────────────── -->
+                        <div v-if="unpaidOtherCharges.length > 0">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Paying For
+                            </label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    @click="paymentMode = 'assessment'; selectedChargeId = null"
+                                    :class="[
+                                        'flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors',
+                                        paymentMode === 'assessment'
+                                            ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
+                                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50',
+                                    ]"
+                                >
+                                    <CheckCircle v-if="paymentMode === 'assessment'" :size="15" class="text-indigo-600" />
+                                    Assessment Balance
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="paymentMode = 'other_charge'"
+                                    :class="[
+                                        'flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors',
+                                        paymentMode === 'other_charge'
+                                            ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
+                                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50',
+                                    ]"
+                                >
+                                    <CheckCircle v-if="paymentMode === 'other_charge'" :size="15" class="text-indigo-600" />
+                                    <BadgeDollarSign :size="15" />
+                                    Other Charges
+                                    <span class="ml-auto rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-bold text-indigo-700">
+                                        {{ unpaidOtherCharges.length }}
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- ── Other Charge Mode ───────────────────────────── -->
+                        <div v-if="paymentMode === 'other_charge'" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    Select Charge <span class="text-red-500">*</span>
+                                </label>
+                                <select
+                                    v-model.number="selectedChargeId"
+                                    class="w-full rounded-lg border px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    <option :value="null">— Select a charge —</option>
+                                    <option
+                                        v-for="charge in unpaidOtherCharges"
+                                        :key="charge.id"
+                                        :value="charge.id"
+                                        :disabled="charge.status === 'pending' || charge.status === 'awaiting_approval'"
+                                    >
+                                        {{ charge.title }} — ₱{{ charge.amount.toFixed(2) }}
+                                        {{ charge.status === 'pending' ? ' (In Progress)' : '' }}
+                                        {{ charge.status === 'awaiting_approval' ? ' (Awaiting Verification)' : '' }}
+                                    </option>
+                                </select>
+                            </div>
+
+                            <!-- Selected charge detail -->
+                            <div v-if="selectedOtherCharge" class="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-2 text-sm">
+                                <div class="flex justify-between">
+                                    <span class="text-indigo-600">Charge</span>
+                                    <span class="font-semibold text-indigo-900">{{ selectedOtherCharge.title }}</span>
+                                </div>
+                                <div v-if="selectedOtherCharge.description" class="text-xs text-indigo-700">
+                                    {{ selectedOtherCharge.description }}
+                                </div>
+                                <div class="flex justify-between border-t border-indigo-200 pt-2">
+                                    <span class="text-indigo-600">Amount Due</span>
+                                    <span class="font-bold text-indigo-900">₱{{ selectedOtherCharge.amount.toFixed(2) }}</span>
+                                </div>
+                                <p class="text-xs text-indigo-600">Full payment required. Amount cannot be changed.</p>
+
+                                <!-- Updated notice -->
+                                <div
+                                    v-if="selectedOtherCharge.updated_after_publish_at"
+                                    class="flex items-center gap-1.5 rounded bg-yellow-100 border border-yellow-200 px-2 py-1.5 text-xs text-yellow-800 mt-1"
+                                >
+                                    <AlertTriangle :size="12" />
+                                    This charge was recently updated by the Accounting Office.
+                                </div>
+                            </div>
+
+                            <!-- Pay error -->
+                            <div v-if="otherChargeError" class="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                                {{ otherChargeError }}
+                            </div>
+
+                            <!-- Submit Other Charge -->
+                            <button
+                                type="button"
+                                @click="payOtherChargeOnline"
+                                :disabled="!selectedOtherCharge || isPayingOtherCharge"
+                                class="w-full rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white shadow transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <span v-if="isPayingOtherCharge">Redirecting to payment…</span>
+                                <span v-else-if="selectedOtherCharge">
+                                    Pay ₱{{ selectedOtherCharge.amount.toFixed(2) }} — {{ selectedOtherCharge.title }}
+                                </span>
+                                <span v-else>Select a charge to continue</span>
+                            </button>
+
+                            <p class="text-center text-xs text-gray-400">
+                                You can also pay at the Accounting Office over-the-counter.
+                            </p>
+                        </div>
+
+                        <!-- ── Assessment Balance Mode (existing form) ─────── -->
+                        <template v-if="paymentMode === 'assessment'">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">
                                 Starting Payment Term <span class="text-red-500">*</span>
@@ -1016,6 +1203,7 @@ const dueDateUrgency = (dueDate: string | null): 'red' | 'amber' | 'green' | nul
                         <p class="text-center text-xs text-gray-400">
                             You will be asked to upload proof of payment after submitting.
                         </p>
+                        </template><!-- end assessment mode -->
                     </div>
                 </div>
 

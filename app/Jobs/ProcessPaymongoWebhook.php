@@ -3,10 +3,12 @@
 namespace App\Jobs;
 
 use App\Enums\PaymentStatus;
+use App\Models\OtherChargePayment;
 use App\Models\Payment;
 use App\Models\StudentPaymentTerm;
 use App\Models\Transaction;
 use App\Models\Workflow;
+use App\Services\OtherChargeService;
 use App\Services\WorkflowService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -90,6 +92,16 @@ class ProcessPaymongoWebhook implements ShouldQueue
             return;
         }
 
+        // ── BRANCH: Check if this is an Other Charge payment ─────────────────
+        // Metadata set by OtherChargeService::initiateOnlinePayment()
+        $metadata = data_get($sessionAttrs, 'metadata', []);
+        if (data_get($metadata, 'type') === 'other_charge') {
+            $this->handleOtherChargePaymentPaid($sessionId, $paymentIntentId);
+            return;
+        }
+
+        // ── EXISTING ASSESSMENT PAYMENT FLOW (unchanged) ──────────────────────
+
         // ── FIND LOCAL PAYMENT ROW ────────────────────────────────────────────
         $payment = Payment::where('paymongo_source_id', $sessionId)
             ->orWhere(function ($q) use ($paymentIntentId) {
@@ -154,11 +166,11 @@ class ProcessPaymongoWebhook implements ShouldQueue
         // PayMongo API provides both gross amount and fees, or we can calculate net_amount
         // Amount in checkout session is in centavos, convert to pesos
         $sessionAmount = data_get($sessionAttrs, 'amount') ? (float) data_get($sessionAttrs, 'amount') / 100 : $grossAmount;
-        
+
         // Extract fees charged by PayMongo from payment intent attributes
         $transactionFee = 0;
         $netAmount = $grossAmount;
-        
+
         // PayMongo fees structure in payment intent
         $paymentIntent = data_get($sessionAttrs, 'payment_intent.attributes', []);
         if (isset($paymentIntent['fees']) && is_array($paymentIntent['fees'])) {
@@ -212,7 +224,7 @@ class ProcessPaymongoWebhook implements ShouldQueue
                 'kind'            => 'payment',
                 'status'          => PaymentStatus::AWAITING_APPROVAL->value,
                 'payment_channel' => 'paymongo',
-                'amount'          => $grossAmount, // Store gross amount for record keeping
+                'amount'          => $grossAmount,
                 'reference'       => "PAY-{$paymentIntentId}",
                 'type'            => 'Payment',
                 'paid_at'         => now(),
@@ -224,15 +236,31 @@ class ProcessPaymongoWebhook implements ShouldQueue
             $this->startPaymentApprovalWorkflow($transaction->id, $user->id);
 
             Log::info('ProcessPaymongoWebhook: payment submitted for accounting review', [
-                'user_id'        => $user->id,
-                'transaction_id' => $transaction->id,
-                'gross_amount'   => $grossAmount,
+                'user_id'         => $user->id,
+                'transaction_id'  => $transaction->id,
+                'gross_amount'    => $grossAmount,
                 'transaction_fee' => $transactionFee,
-                'net_amount'     => $netAmount,
-                'term_id'        => $termId,
-                'payment_intent' => $paymentIntentId,
+                'net_amount'      => $netAmount,
+                'term_id'         => $termId,
+                'payment_intent'  => $paymentIntentId,
             ]);
         });
+    }
+
+    // ─── Other Charge Branch ──────────────────────────────────────────────────
+
+    /**
+     * Handle a confirmed payment for an Other Charge.
+     * Delegates entirely to OtherChargeService — no assessment logic involved.
+     */
+    private function handleOtherChargePaymentPaid(string $sessionId, string $paymentIntentId): void
+    {
+        Log::info('ProcessPaymongoWebhook: routing to OtherChargeService', [
+            'session_id'        => $sessionId,
+            'payment_intent_id' => $paymentIntentId,
+        ]);
+
+        app(OtherChargeService::class)->handleWebhookPaid($sessionId, $paymentIntentId);
     }
 
     private function handlePaymentFailed(): void
@@ -255,6 +283,14 @@ class ProcessPaymongoWebhook implements ShouldQueue
             return;
         }
 
+        // ── BRANCH: Other Charge failure ─────────────────────────────────────
+        $metadata = data_get($sessionAttrs, 'metadata', []);
+        if (data_get($metadata, 'type') === 'other_charge') {
+            app(OtherChargeService::class)->handleWebhookFailed($sessionId, $paymentIntentId);
+            return;
+        }
+
+        // ── EXISTING: Assessment payment failure (unchanged) ──────────────────
         $cancelled = Payment::where('paymongo_source_id', $sessionId)
             ->orWhere('paymongo_intent_id', $paymentIntentId)
             ->update(['status' => 'cancelled']);

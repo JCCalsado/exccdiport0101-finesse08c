@@ -70,6 +70,7 @@ class SubjectController extends Controller
             'yearLevels'   => self::YEAR_LEVELS,
             'semesters'    => self::SEMESTERS,
             'filters'      => $request->only(['course', 'year_level', 'semester', 'search']),
+            'canCreate'    => auth()->user()->role === UserRoleEnum::REGISTRAR || auth()->user()->role === UserRoleEnum::ADMIN,
             'canEditNstp'  => $this->canEditNstp(),
         ]);
     }

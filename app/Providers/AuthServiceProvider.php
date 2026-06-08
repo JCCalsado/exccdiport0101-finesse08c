@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\CurriculumFeePreset;
 use App\Models\FeeSetting;
 use App\Models\Notification;
+use App\Models\OtherCharge;
 use App\Models\Payment;
 use App\Models\Student;
 use App\Models\StudentAssessment;
@@ -17,6 +18,7 @@ use App\Policies\CurriculumPresetPolicy;
 use App\Policies\FeeManagementPolicy;
 use App\Policies\FinancialReportPolicy;
 use App\Policies\NotificationPolicy;
+use App\Policies\OtherChargePolicy;
 use App\Policies\PaymentPolicy;
 use App\Policies\StudentFeePolicy;
 use App\Policies\StudentPaymentTermPolicy;
@@ -37,7 +39,7 @@ class AuthServiceProvider extends ServiceProvider
         StudentPaymentTerm::class  => StudentPaymentTermPolicy::class,
         Payment::class             => PaymentPolicy::class,
         StudentRegistration::class => StudentRegistrationPolicy::class,
-        CurriculumFeePreset::class    => CurriculumPresetPolicy::class,
+        CurriculumFeePreset::class => CurriculumPresetPolicy::class,
         Subject::class             => SubjectPolicy::class,
 
         // Bound so `$this->authorize('manageSystemFees', FeeSetting::class)` works.
@@ -47,6 +49,9 @@ class AuthServiceProvider extends ServiceProvider
         // Bound so `$this->authorize('create', StudentAssessment::class)` works.
         // StudentFeePolicy methods take only User — the model class is just a resolver key.
         StudentAssessment::class   => StudentFeePolicy::class,
+
+        // Other Charges module — Disbursing Officer + Admin manage, Cashier can collect.
+        OtherCharge::class         => OtherChargePolicy::class,
     ];
 
     public function boot(): void
