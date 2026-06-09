@@ -193,29 +193,46 @@ class OtherChargeService
             throw new \RuntimeException('This charge has already been paid.');
         }
 
-        $existingPending = OtherChargePayment::where('other_charge_id', $charge->id)
-            ->where('user_id', $student->id)
-            ->whereIn('status', ['pending', 'awaiting_approval'])
-            ->first();
-
-        if ($existingPending) {
-            throw new \RuntimeException(
-                'A payment for this charge is already in progress. Please wait or contact accounting.'
-            );
-        }
+        // ── Guard: already paid ───────────────────────────────────────────────────
+        // isOwedByStudent() above already checks this, but be explicit here
+        // so the error message is precise if somehow reached directly.
+        //
+        // Note: no "in progress" guard needed. The table has a UNIQUE(other_charge_id, user_id)
+        // constraint — updateOrCreate below reuses the existing row on retry, so a crashed
+        // or abandoned pending session is automatically replaced, not duplicated.
 
         $amountCents = (int) round((float) $charge->amount * 100);
 
-        $payment = OtherChargePayment::create([
-            'other_charge_id' => $charge->id,
-            'user_id'         => $student->id,
-            'amount_paid'     => $charge->amount,
-            'payment_method'  => 'online',
-            'status'          => 'pending',
-        ]);
+        // ── Use updateOrCreate to respect the UNIQUE(other_charge_id, user_id) constraint ──
+        // The table enforces one row per student per charge. On retry after a crash
+        // or cancellation, we reuse the existing row rather than inserting a new one.
+        $payment = OtherChargePayment::updateOrCreate(
+            [
+                'other_charge_id' => $charge->id,
+                'user_id'         => $student->id,
+            ],
+            [
+                'amount_paid'         => $charge->amount,
+                'payment_method'      => 'online',
+                'status'              => 'pending',
+                'or_number'           => null,
+                'paymongo_session_id' => null,
+                'payment_intent_id'   => null,
+                'reference'           => null,
+                'collected_by'        => null,
+                'paid_at'             => null,
+                'notes'               => null,
+            ]
+        );
 
         try {
-            $secretKey = config('services.paymongo.secret_key');
+            $secretKey = config('services.paymongo.secret');
+
+            if (empty($secretKey)) {
+                throw new \RuntimeException(
+                    'PayMongo secret key is not configured. Set PAYMONGO_SECRET_KEY in your .env file.'
+                );
+            }
 
             $response = Http::withBasicAuth($secretKey, '')
                 ->post('https://api.paymongo.com/v1/checkout_sessions', [

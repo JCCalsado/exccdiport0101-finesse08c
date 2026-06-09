@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\AccountingTypeEnum;
 use App\Models\StudentAssessment;
 use App\Models\StudentPaymentTerm;
 use App\Models\Transaction;
@@ -33,6 +32,13 @@ class AccountingDashboardController extends Controller
      * (role:accounting,admin) is. This is a data-hygiene and performance concern.
      * Inertia serialises all props to JSON in the page response; a Cashier could
      * inspect source and see pending approval counts if we don't scope them out.
+     *
+     * ── SEMESTER INVARIANT ────────────────────────────────────────────────────
+     * student_assessments.semester stores '1st Sem' / '2nd Sem' / 'Summer'.
+     * AssessmentService::normalizeSemester() maps '1st' → '1st Sem' before
+     * every DB write. currentSemester here must match that canonical format
+     * exactly — never '1st' or '2nd' without the ' Sem' suffix.
+     * ─────────────────────────────────────────────────────────────────────────
      */
     public function index(): Response
     {
@@ -40,9 +46,10 @@ class AccountingDashboardController extends Controller
         $currentYear = now()->year;
         $month       = now()->month;
 
+        // ── CORRECT: matches student_assessments.semester canonical format ────
         $currentSemester = match (true) {
-            $month >= 6 && $month <= 10 => '1st',
-            $month >= 11 || $month <= 3 => '2nd',
+            $month >= 6 && $month <= 10 => '1st Sem',
+            $month >= 11 || $month <= 3 => '2nd Sem',
             default                     => 'Summer',
         };
 
@@ -60,7 +67,6 @@ class AccountingDashboardController extends Controller
             : 0;
 
         // ── Student balance data (DO + Cashier only) ──────────────────────────
-        // Bookkeepers work at the aggregate level — they don't need individual student rows.
         $studentsWithBalance = [];
         $totalPending        = 0.0;
 
@@ -101,13 +107,12 @@ class AccountingDashboardController extends Controller
             ->get()
             ->keyBy('status');
 
-        $activeAssessmentCount  = (int)   ($assessmentStats['active']?->count  ?? 0);
+        $activeAssessmentCount  = (int)   ($assessmentStats['active']?->count       ?? 0);
         $activeAssessmentAmount = (float)  ($assessmentStats['active']?->total_amount ?? 0);
-        $pendingAssessmentCount = (int)   ($assessmentStats['pending']?->count ?? 0);
+        $pendingAssessmentCount = (int)   ($assessmentStats['pending']?->count       ?? 0);
         $recentAssessmentsCount = StudentAssessment::where('created_at', '>=', now()->subDays(30))->count();
 
         // ── Pending approvals (Disbursing Officer + Admin only) ───────────────
-        // Cashiers and Bookkeepers do not process workflow approvals.
         $pendingApprovals = 0;
         if ($isDO) {
             $pendingApprovals = WorkflowApproval::where('status', 'pending')
@@ -185,14 +190,10 @@ class AccountingDashboardController extends Controller
                 'collection_rate'   => $collectionRate,
                 'active_fees'       => $activeAssessmentCount,
                 'total_fee_amount'  => $activeAssessmentAmount,
-                // Only non-zero for DO/Admin — Cashiers and Bookkeepers receive 0
-                // so they don't see pending approval counts in Inertia JSON payload.
                 'pending_approvals' => $pendingApprovals,
             ],
 
-            // Empty array for non-DO, non-Cashier roles — Bookkeepers don't need this table.
             'studentsWithBalance' => $studentsWithBalance,
-            // Empty array for Bookkeepers — they see the trend charts instead.
             'recentPayments'      => $recentPayments,
             'paymentTrends'       => $paymentTrends,
             'paymentByMethod'     => $paymentByMethod,
@@ -200,13 +201,15 @@ class AccountingDashboardController extends Controller
 
             'currentTerm' => [
                 'year'     => $currentYear,
+                // '1st Sem' | '2nd Sem' | 'Summer' — matches student_assessments.semester exactly.
+                // AssessmentService::normalizeSemester() is the canonical writer for that column.
                 'semester' => $currentSemester,
             ],
 
             'studentFeeStats' => [
                 'total_assessments'         => $activeAssessmentCount,
                 'total_assessment_amount'   => $activeAssessmentAmount,
-                'pending_assessments_count' => $pendingAssessmentCount,  // integer count, NOT currency
+                'pending_assessments_count' => $pendingAssessmentCount,
                 'recent_assessments'        => $recentAssessmentsCount,
                 'recent_payments_amount'    => $recentPaymentsAmount,
             ],
