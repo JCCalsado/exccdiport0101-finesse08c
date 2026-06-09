@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\OtherCharge;
 use App\Models\OtherChargePayment;
 use App\Models\User;
+use App\Notifications\OtherChargePaymentConfirmed;
+use App\Notifications\OtherChargePublished;
 use App\Services\OtherChargeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -85,6 +88,8 @@ class OtherChargeController extends Controller
             'is_active'  => true,
         ]);
 
+        // No notification here — charge is a DRAFT. Students are notified on publish.
+
         return redirect()
             ->route('accounting.other-charges.show', $charge)
             ->with('success', "'{$charge->title}' created as a draft.");
@@ -98,8 +103,8 @@ class OtherChargeController extends Controller
 
         $students = $this->service->getStudentsForCharge($otherCharge);
 
-        $paidCount   = $students->where('status', 'paid')->count();
-        $unpaidCount = $students->where('status', 'unpaid')->count();
+        $paidCount      = $students->where('status', 'paid')->count();
+        $unpaidCount    = $students->where('status', 'unpaid')->count();
         $totalCollected = $students->where('status', 'paid')->sum('amount_paid');
 
         return Inertia::render('Accounting/OtherCharges/Show', [
@@ -119,14 +124,14 @@ class OtherChargeController extends Controller
                 'updated_after_publish_at' => $otherCharge->updated_after_publish_at?->format('Y-m-d H:i'),
                 'created_at'               => $otherCharge->created_at->format('Y-m-d'),
             ],
-            'students'       => $students->values(),
-            'summary' => [
+            'students'         => $students->values(),
+            'summary'          => [
                 'total'           => $students->count(),
                 'paid'            => $paidCount,
                 'unpaid'          => $unpaidCount,
                 'total_collected' => (float) $totalCollected,
             ],
-            'canEdit'          => $request = request() and $request->user()->can('update', $otherCharge),
+            'canEdit'          => request()->user()->can('update', $otherCharge),
             'canRecordPayment' => request()->user()->can('recordPayment', $otherCharge),
             'canPublish'       => request()->user()->can('publish', $otherCharge),
             'hasPaidStudents'  => $paidCount > 0,
@@ -141,14 +146,14 @@ class OtherChargeController extends Controller
 
         return Inertia::render('Accounting/OtherCharges/Edit', [
             'charge' => [
-                'id'          => $otherCharge->id,
-                'title'       => $otherCharge->title,
-                'description' => $otherCharge->description,
-                'amount'      => (float) $otherCharge->amount,
-                'school_year' => $otherCharge->school_year,
-                'semester'    => $otherCharge->semester,
-                'year_level'  => $otherCharge->year_level,
-                'course'      => $otherCharge->course,
+                'id'           => $otherCharge->id,
+                'title'        => $otherCharge->title,
+                'description'  => $otherCharge->description,
+                'amount'       => (float) $otherCharge->amount,
+                'school_year'  => $otherCharge->school_year,
+                'semester'     => $otherCharge->semester,
+                'year_level'   => $otherCharge->year_level,
+                'course'       => $otherCharge->course,
                 'is_published' => $otherCharge->is_published,
             ],
             'hasPaidStudents' => $otherCharge->payments()->where('status', 'paid')->exists(),
@@ -176,10 +181,8 @@ class OtherChargeController extends Controller
         ]);
 
         $wasPublished = $otherCharge->is_published;
+        $updateData   = $validated;
 
-        $updateData = $validated;
-
-        // If already published, stamp the update time so students can see a notice
         if ($wasPublished) {
             $updateData['updated_after_publish_at'] = now();
         }
@@ -205,7 +208,7 @@ class OtherChargeController extends Controller
             ->with('success', "'{$title}' has been archived.");
     }
 
-    // ─── Publish ─────────────────────────────────────────────────────────────
+    // ─── Publish ──────────────────────────────────────────────────────────────
 
     public function publish(Request $request, OtherCharge $otherCharge)
     {
@@ -223,7 +226,31 @@ class OtherChargeController extends Controller
             'published_by' => $request->user()->id,
         ]);
 
-        return back()->with('success', "'{$otherCharge->title}' is now published and visible to students.");
+        // ── Notify all matching students ──────────────────────────────────────
+        // Load matching students from the DB. For large cohorts this runs as
+        // individual mail dispatches — acceptable for the current Hostinger
+        // cron queue setup. If the cohort ever exceeds ~200, move to a queued
+        // chunked job.
+        $matchingStudents = $otherCharge->buildMatchingStudentsQuery()->get();
+
+        if ($matchingStudents->isNotEmpty()) {
+            try {
+                Notification::send($matchingStudents, new OtherChargePublished($otherCharge));
+
+                Log::info('OtherChargePublished notification dispatched', [
+                    'charge_id'      => $otherCharge->id,
+                    'student_count'  => $matchingStudents->count(),
+                ]);
+            } catch (\Throwable $e) {
+                // Notification failure must NOT block the publish action.
+                Log::error('OtherChargePublished notification failed', [
+                    'charge_id' => $otherCharge->id,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return back()->with('success', "'{$otherCharge->title}' is now published. {$matchingStudents->count()} student(s) notified.");
     }
 
     // ─── Record OTC Payment ───────────────────────────────────────────────────
@@ -249,6 +276,19 @@ class OtherChargeController extends Controller
                 collectedBy: $request->user(),
             );
 
+            // ── Notify student of OTC payment confirmation ────────────────────
+            try {
+                $student->notify(new OtherChargePaymentConfirmed($otherCharge, $payment));
+            } catch (\Throwable $e) {
+                // Notification failure must NOT roll back the recorded payment.
+                Log::warning('OtherChargePaymentConfirmed notification failed (OTC)', [
+                    'charge_id'  => $otherCharge->id,
+                    'student_id' => $student->id,
+                    'or_number'  => $payment->or_number,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+
             return back()->with('success', "Payment recorded for {$student->name}. OR# {$payment->or_number}");
 
         } catch (\RuntimeException $e) {
@@ -273,8 +313,7 @@ class OtherChargeController extends Controller
             'course'      => ['nullable', 'string'],
         ]);
 
-        // Build a temporary OtherCharge (not persisted) for the query
-        $temp = new OtherCharge($validated);
+        $temp  = new OtherCharge($validated);
         $count = $temp->buildMatchingStudentsQuery()->count();
 
         return response()->json(['count' => $count]);

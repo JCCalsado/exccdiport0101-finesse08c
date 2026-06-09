@@ -4,8 +4,8 @@ namespace App\Services;
 
 use App\Models\OtherCharge;
 use App\Models\OtherChargePayment;
-use App\Models\StudentAssessment;
 use App\Models\User;
+use App\Notifications\OtherChargePaymentConfirmed;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -17,7 +17,6 @@ class OtherChargeService
 
     public function getChargesForStudent(User $student): Collection
     {
-        // FIX: was studentAssessments() — correct relationship name is assessments()
         $assessment = $student->assessments()
             ->where('status', 'active')
             ->latest()
@@ -47,8 +46,7 @@ class OtherChargeService
             ->get();
 
         return $charges->map(function (OtherCharge $charge) use ($student) {
-            $payment = $charge->payments->first();
-
+            $payment    = $charge->payments->first();
             $status     = 'unpaid';
             $amountPaid = 0.0;
             $paidAt     = null;
@@ -62,20 +60,20 @@ class OtherChargeService
             }
 
             return [
-                'id'                        => $charge->id,
-                'title'                     => $charge->title,
-                'description'               => $charge->description,
-                'amount'                    => (float) $charge->amount,
-                'school_year'               => $charge->school_year,
-                'semester'                  => $charge->semester,
-                'year_level'                => $charge->year_level,
-                'course'                    => $charge->course,
-                'published_at'              => $charge->published_at?->format('Y-m-d'),
-                'updated_after_publish_at'  => $charge->updated_after_publish_at?->format('Y-m-d H:i'),
-                'status'                    => $status,
-                'amount_paid'               => $amountPaid,
-                'paid_at'                   => $paidAt,
-                'or_number'                 => $orNumber,
+                'id'                       => $charge->id,
+                'title'                    => $charge->title,
+                'description'              => $charge->description,
+                'amount'                   => (float) $charge->amount,
+                'school_year'              => $charge->school_year,
+                'semester'                 => $charge->semester,
+                'year_level'               => $charge->year_level,
+                'course'                   => $charge->course,
+                'published_at'             => $charge->published_at?->format('Y-m-d'),
+                'updated_after_publish_at' => $charge->updated_after_publish_at?->format('Y-m-d H:i'),
+                'status'                   => $status,
+                'amount_paid'              => $amountPaid,
+                'paid_at'                  => $paidAt,
+                'or_number'                => $orNumber,
                 'payment_id'               => $payment?->id,
             ];
         });
@@ -87,7 +85,6 @@ class OtherChargeService
     {
         $students = $charge->buildMatchingStudentsQuery()
             ->with([
-                // FIX: correct relationship name
                 'assessments' => fn ($q) => $q->where('status', 'active')->latest()->limit(1),
             ])
             ->orderBy('last_name')
@@ -99,10 +96,8 @@ class OtherChargeService
             ->keyBy('user_id');
 
         return $students->map(function (User $student) use ($charge, $payments) {
-            $payment    = $payments->get($student->id);
-            // FIX: correct relationship name
-            $assessment = $student->assessments->first();
-
+            $payment         = $payments->get($student->id);
+            $assessment      = $student->assessments->first();
             $status          = 'unpaid';
             $amountPaid      = 0.0;
             $paidAt          = null;
@@ -285,6 +280,8 @@ class OtherChargeService
         }
     }
 
+    // ─── Webhook Handlers ─────────────────────────────────────────────────────
+
     public function handleWebhookPaid(string $sessionId, string $paymentIntentId): void
     {
         $payment = OtherChargePayment::where('paymongo_session_id', $sessionId)
@@ -300,6 +297,7 @@ class OtherChargeService
         }
 
         if ($payment->status === 'paid') {
+            // Already processed — idempotent, do nothing.
             return;
         }
 
@@ -311,11 +309,35 @@ class OtherChargeService
         ]);
 
         Log::info('OtherChargeService::handleWebhookPaid: payment confirmed', [
-            'payment_id'        => $payment->id,
-            'other_charge_id'   => $payment->other_charge_id,
-            'student_id'        => $payment->user_id,
-            'amount'            => $payment->amount_paid,
+            'payment_id'      => $payment->id,
+            'other_charge_id' => $payment->other_charge_id,
+            'student_id'      => $payment->user_id,
+            'amount'          => $payment->amount_paid,
         ]);
+
+        // ── Notify student of online payment confirmation ─────────────────────
+        // Load the charge and student fresh — avoid relying on stale relations
+        // in the webhook context where no Eloquent eager loading has been done.
+        try {
+            $charge  = OtherCharge::find($payment->other_charge_id);
+            $student = User::find($payment->user_id);
+
+            if ($charge && $student) {
+                $student->notify(new OtherChargePaymentConfirmed($charge, $payment));
+            } else {
+                Log::warning('OtherChargeService::handleWebhookPaid: could not resolve charge or student for notification', [
+                    'payment_id'      => $payment->id,
+                    'other_charge_id' => $payment->other_charge_id,
+                    'user_id'         => $payment->user_id,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Notification failure must NOT affect the webhook response.
+            Log::error('OtherChargePaymentConfirmed notification failed (online)', [
+                'payment_id' => $payment->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 
     public function handleWebhookFailed(string $sessionId, string $paymentIntentId): void
