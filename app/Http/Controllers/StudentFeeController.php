@@ -758,6 +758,31 @@ class StudentFeeController extends Controller
             }
         }
 
+        // ── Other Charge payments for this student ────────────────────────────────
+        // Shown in the Accounting view of the student's financial profile.
+        // Includes all statuses so DO/Cashier can see in-progress online payments.
+        $otherChargePayments = \App\Models\OtherChargePayment::where('user_id', $userId)
+            ->with('charge:id,title,amount,school_year,semester')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($p) => [
+                'id'             => $p->id,
+                'charge_id'      => $p->other_charge_id,
+                'title'          => $p->charge?->title ?? 'Unknown Charge',
+                'amount'         => (float) ($p->charge?->amount ?? 0),
+                'amount_paid'    => (float) $p->amount_paid,
+                'school_year'    => $p->charge?->school_year,
+                'semester'       => $p->charge?->semester,
+                'status'         => $p->status,
+                'payment_method' => $p->payment_method,
+                'or_number'      => $p->or_number,
+                'reference'      => $p->reference,
+                'collected_by'   => $p->collectedBy?->name,
+                'paid_at'        => $p->paid_at?->format('Y-m-d H:i'),
+                'created_at'     => $p->created_at?->format('Y-m-d H:i'),
+            ])
+            ->all();
+
         return Inertia::render('StudentFees/Show', [
             'student' => [
                 'id'            => $user->id,
@@ -786,6 +811,7 @@ class StudentFeeController extends Controller
             'miscItems'                    => $miscItems,
             'backUrl'                      => route('student-fees.index'),
             'enrolledSubjectsByAssessment' => $enrolledSubjectsByAssessment,
+            'otherChargePayments'          => $otherChargePayments,
         ]);
     }
 

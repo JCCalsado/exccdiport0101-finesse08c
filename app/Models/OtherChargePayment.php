@@ -53,7 +53,12 @@ class OtherChargePayment extends Model
 
     public function scopePending($query)
     {
-        return $query->whereIn('status', ['pending', 'awaiting_proof', 'awaiting_approval']);
+        return $query->whereIn('status', ['pending', 'awaiting_confirmation', 'awaiting_proof', 'awaiting_approval']);
+    }
+
+    public function scopeAwaitingConfirmation($query)
+    {
+        return $query->where('status', 'awaiting_confirmation');
     }
 
     public function scopeOnline($query)

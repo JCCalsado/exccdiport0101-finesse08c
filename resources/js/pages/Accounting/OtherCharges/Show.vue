@@ -112,27 +112,35 @@ const submitPayment = () => {
 // ── Status badge ──────────────────────────────────────────────────────────────
 const studentStatusBadge = (status: string) => {
     const map: Record<string, string> = {
-        paid:               'bg-green-100 text-green-800',
-        unpaid:             'bg-gray-100 text-gray-700',
-        pending:            'bg-yellow-100 text-yellow-800',
-        awaiting_approval:  'bg-blue-100 text-blue-800',
-        failed:             'bg-red-100 text-red-800',
-        cancelled:          'bg-gray-100 text-gray-500',
+        paid:                   'bg-green-100 text-green-800',
+        unpaid:                 'bg-gray-100 text-gray-700',
+        pending:                'bg-yellow-100 text-yellow-800',
+        awaiting_confirmation:  'bg-blue-100 text-blue-800',
+        awaiting_approval:      'bg-blue-100 text-blue-800',
+        failed:                 'bg-red-100 text-red-800',
+        cancelled:              'bg-gray-100 text-gray-500',
     };
     return map[status] ?? 'bg-gray-100 text-gray-700';
 };
 
 const studentStatusLabel = (status: string) => {
     const map: Record<string, string> = {
-        paid:               'Paid',
-        unpaid:             'Unpaid',
-        pending:            'In Progress',
-        awaiting_approval:  'Awaiting Verification',
-        failed:             'Failed',
-        cancelled:          'Cancelled',
+        paid:                   'Paid',
+        unpaid:                 'Unpaid',
+        pending:                'In Progress (Online)',
+        awaiting_confirmation:  'Confirming Payment',
+        awaiting_approval:      'Awaiting Verification',
+        failed:                 'Failed',
+        cancelled:              'Cancelled',
     };
     return map[status] ?? status;
 };
+
+// Whether a student row represents an in-progress online payment
+// (accounting should NOT record OTC for these)
+const isOnlineInProgress = (student: ChargeStudent) =>
+    student.payment_method === 'online' &&
+    ['pending', 'awaiting_confirmation'].includes(student.status);
 </script>
 
 <template>
@@ -299,13 +307,19 @@ const studentStatusLabel = (status: string) => {
                             </td>
                             <td v-if="canRecordPayment" class="px-4 py-3 text-center">
                                 <button
-                                    v-if="student.status !== 'paid'"
+                                    v-if="student.status !== 'paid' && !isOnlineInProgress(student)"
                                     @click="openPaymentModal(student)"
                                     class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-colors"
                                 >
                                     <CreditCard class="h-3.5 w-3.5" />
                                     Record OTC
                                 </button>
+                                <span
+                                    v-else-if="isOnlineInProgress(student)"
+                                    class="text-xs text-blue-600 font-medium"
+                                >
+                                    ⏳ Online pending
+                                </span>
                                 <span v-else class="text-xs text-green-600 font-medium">✓ Paid</span>
                             </td>
                         </tr>

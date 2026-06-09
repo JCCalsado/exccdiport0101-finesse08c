@@ -70,6 +70,23 @@ interface FeeBreakdownItem {
     subject_id?: number;
 }
 
+interface OtherChargePaymentRow {
+    id: number;
+    charge_id: number;
+    title: string;
+    amount: number;
+    amount_paid: number;
+    school_year: string | null;
+    semester: string | null;
+    status: string;
+    payment_method: string | null;
+    or_number: string | null;
+    reference: string | null;
+    collected_by: string | null;
+    paid_at: string | null;
+    created_at: string | null;
+}
+
 interface Assessment {
     id: number;
     course: string | null;
@@ -105,6 +122,7 @@ interface Props {
     enrolledSubjectsByAssessment?: Record<number, AssessmentSubjectRow[] | number[]>;
     // ✅ FIX: was missing from Props interface, causing TS error
     miscItems?: Array<{ label?: string; name?: string; amount: number }>;
+    otherChargePayments?: OtherChargePaymentRow[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -114,6 +132,7 @@ const props = withDefaults(defineProps<Props>(), {
     feeBreakdown: () => [],
     enrolledSubjectsByAssessment: () => ({}),
     miscItems: () => [],
+    otherChargePayments: () => [],
 });
 
 // ─── Assessment selector ────────────────────────────────────────────────────
@@ -2187,6 +2206,156 @@ const academicTotals = computed(() => {
                         >
                             See More ({{ filteredPayments.length - paymentHistoryLimit }} remaining)
                         </button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- ── Other Charges Panel ── -->
+            <Card v-if="props.otherChargePayments && props.otherChargePayments.length > 0">
+                <CardHeader>
+                    <CardTitle class="flex items-center gap-2">
+                        <span>Other Charges</span>
+                        <span class="text-sm font-normal text-muted-foreground">({{ props.otherChargePayments.length }} charge{{ props.otherChargePayments.length !== 1 ? 's' : '' }})</span>
+                    </CardTitle>
+                </CardHeader>
+                <CardContent class="p-0">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Charge</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Period</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Amount</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Method</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">OR / Ref</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr
+                                    v-for="p in props.otherChargePayments"
+                                    :key="p.id"
+                                    class="hover:bg-gray-50 transition-colors"
+                                >
+                                    <td class="px-4 py-3 font-medium text-gray-900">{{ p.title }}</td>
+                                    <td class="px-4 py-3 text-xs text-muted-foreground">
+                                        {{ p.school_year ?? '—' }}
+                                        <span v-if="p.semester"> · {{ p.semester }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 font-medium text-gray-900">
+                                        {{ p.status === 'paid'
+                                            ? new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(p.amount_paid)
+                                            : new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(p.amount) }}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span :class="[
+                                            'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
+                                            p.status === 'paid'                   ? 'bg-green-100 text-green-800'  :
+                                            p.status === 'awaiting_confirmation'  ? 'bg-blue-100 text-blue-800'    :
+                                            p.status === 'pending'                ? 'bg-yellow-100 text-yellow-800':
+                                            p.status === 'failed'                 ? 'bg-red-100 text-red-800'      :
+                                            p.status === 'cancelled'              ? 'bg-gray-100 text-gray-500'    :
+                                            'bg-gray-100 text-gray-700'
+                                        ]">
+                                            {{
+                                                p.status === 'paid'                  ? 'Paid' :
+                                                p.status === 'awaiting_confirmation' ? 'Confirming…' :
+                                                p.status === 'pending'               ? 'In Progress' :
+                                                p.status === 'failed'                ? 'Failed' :
+                                                p.status === 'cancelled'             ? 'Cancelled' :
+                                                p.status
+                                            }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-muted-foreground capitalize">
+                                        {{ p.payment_method === 'otc' ? 'OTC / Cash' : p.payment_method === 'online' ? 'Online' : '—' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-xs font-mono text-gray-700">
+                                        {{ p.or_number ?? p.reference ?? '—' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-muted-foreground">
+                                        {{ p.paid_at ?? p.created_at ?? '—' }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- ── Other Charges Panel ── -->
+            <Card v-if="props.otherChargePayments && props.otherChargePayments.length > 0">
+                <CardHeader>
+                    <CardTitle class="flex items-center gap-2">
+                        <span>Other Charges</span>
+                        <span class="text-sm font-normal text-muted-foreground">
+                            ({{ props.otherChargePayments.length }} charge{{ props.otherChargePayments.length !== 1 ? 's' : '' }})
+                        </span>
+                    </CardTitle>
+                </CardHeader>
+                <CardContent class="p-0">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Charge</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Period</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Amount</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Method</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">OR / Ref</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                <tr
+                                    v-for="p in props.otherChargePayments"
+                                    :key="p.id"
+                                    class="hover:bg-gray-50 transition-colors"
+                                >
+                                    <td class="px-4 py-3 font-medium text-gray-900">{{ p.title }}</td>
+                                    <td class="px-4 py-3 text-xs text-muted-foreground">
+                                        {{ p.school_year ?? '—' }}
+                                        <span v-if="p.semester"> · {{ p.semester }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 font-mono text-gray-900">
+                                        ₱{{ p.status === 'paid'
+                                            ? Number(p.amount_paid).toLocaleString('en-PH', { minimumFractionDigits: 2 })
+                                            : Number(p.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 }) }}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span :class="[
+                                            'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
+                                            p.status === 'paid'                  ? 'bg-green-100 text-green-800'   :
+                                            p.status === 'awaiting_confirmation' ? 'bg-blue-100 text-blue-800'     :
+                                            p.status === 'pending'               ? 'bg-yellow-100 text-yellow-800' :
+                                            p.status === 'failed'                ? 'bg-red-100 text-red-800'       :
+                                            p.status === 'cancelled'             ? 'bg-gray-100 text-gray-500'     :
+                                            'bg-gray-100 text-gray-700'
+                                        ]">
+                                            {{
+                                                p.status === 'paid'                  ? 'Paid'         :
+                                                p.status === 'awaiting_confirmation' ? 'Confirming…'  :
+                                                p.status === 'pending'               ? 'In Progress'  :
+                                                p.status === 'failed'                ? 'Failed'        :
+                                                p.status === 'cancelled'             ? 'Cancelled'     :
+                                                p.status
+                                            }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-muted-foreground capitalize">
+                                        {{ p.payment_method === 'otc' ? 'OTC / Cash' : p.payment_method === 'online' ? 'Online' : '—' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-xs font-mono text-gray-700">
+                                        {{ p.or_number ?? p.reference ?? '—' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-muted-foreground">
+                                        {{ p.paid_at ?? p.created_at ?? '—' }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </CardContent>
             </Card>

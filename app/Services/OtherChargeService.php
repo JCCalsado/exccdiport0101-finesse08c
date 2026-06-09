@@ -301,9 +301,19 @@ class OtherChargeService
 
     public function handleWebhookPaid(string $sessionId, string $paymentIntentId): void
     {
-        $payment = OtherChargePayment::where('paymongo_session_id', $sessionId)
-            ->orWhere('payment_intent_id', $paymentIntentId)
+        $payment = OtherChargePayment::where(function ($q) use ($sessionId, $paymentIntentId) {
+                $q->where('paymongo_session_id', $sessionId)
+                  ->orWhere('payment_intent_id', $paymentIntentId);
+            })
+            ->whereIn('status', ['pending', 'awaiting_confirmation'])
             ->first();
+
+        // Fallback: if the row was already marked paid (double webhook delivery), find it anyway
+        if (! $payment) {
+            $payment = OtherChargePayment::where('paymongo_session_id', $sessionId)
+                ->orWhere('payment_intent_id', $paymentIntentId)
+                ->first();
+        }
 
         if (! $payment) {
             Log::warning('OtherChargeService::handleWebhookPaid: no payment row found', [
