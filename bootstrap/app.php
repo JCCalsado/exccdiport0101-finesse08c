@@ -21,9 +21,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // balancer. Without this, Laravel sees the internal HTTP request and
         // generates cookies without the Secure flag — the browser then refuses
         // to send them back on HTTPS, causing 419 CSRF failures on login/logout.
-        // '*' trusts ALL proxies — safe on Railway since traffic only enters
-        // through their infrastructure. Tighten to specific IPs if needed.
-        $middleware->trustProxies(at: '*');
+        // For production on Railway, uncomment the trustProxies line below.
+        // For local development, this is NOT needed and causes HTTPS redirect issues.
+        // if (env('APP_ENV') === 'production') {
+        //     $middleware->trustProxies(at: '*');
+        // }
 
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
