@@ -20,31 +20,44 @@ class OtherChargeController extends Controller
     public function __construct(private readonly OtherChargeService $service) {}
 
     // ─── Index ────────────────────────────────────────────────────────────────
+    //
+    // BUG-06 FIX: N+1 queries eliminated for paid_count and total_collected.
+    //
+    // BEFORE: paid_count and total_collected were computed inside ->map() via
+    //   individual ->count() and ->sum() calls — 2 extra queries per charge row.
+    //   15 charges = ~31 extra queries just for the index page.
+    //
+    // AFTER: withCount() and withSum() load both aggregates in the same query
+    //   as the charges themselves. matchingStudentCount() still runs per-row
+    //   (requires a correlated subquery per charge) but the two cheapest
+    //   offenders are now fully batched.
 
     public function index(): Response
     {
         $this->authorize('viewAny', OtherCharge::class);
 
         $charges = OtherCharge::with('createdBy')
+            ->withCount(['payments as paid_count' => fn ($q) => $q->where('status', 'paid')])
+            ->withSum(['payments as total_collected' => fn ($q) => $q->where('status', 'paid')], 'amount_paid')
             ->active()
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (OtherCharge $charge) => [
-                'id'                       => $charge->id,
-                'title'                    => $charge->title,
-                'description'              => $charge->description,
-                'amount'                   => (float) $charge->amount,
-                'school_year'              => $charge->school_year,
-                'semester'                 => $charge->semester,
-                'year_level'               => $charge->year_level,
-                'course'                   => $charge->course,
-                'status_label'             => $charge->status_label,
-                'is_published'             => $charge->is_published,
-                'published_at'             => $charge->published_at?->format('Y-m-d'),
-                'created_by_name'          => $charge->createdBy?->name,
-                'matching_student_count'   => $charge->matchingStudentCount(),
-                'paid_count'               => $charge->payments()->where('status', 'paid')->count(),
-                'total_collected'          => (float) $charge->payments()->where('status', 'paid')->sum('amount_paid'),
+                'id'                     => $charge->id,
+                'title'                  => $charge->title,
+                'description'            => $charge->description,
+                'amount'                 => (float) $charge->amount,
+                'school_year'            => $charge->school_year,
+                'semester'               => $charge->semester,
+                'year_level'             => $charge->year_level,
+                'course'                 => $charge->course,
+                'status_label'           => $charge->status_label,
+                'is_published'           => $charge->is_published,
+                'published_at'           => $charge->published_at?->format('Y-m-d'),
+                'created_by_name'        => $charge->createdBy?->name,
+                'matching_student_count' => $charge->matchingStudentCount(),
+                'paid_count'             => (int) $charge->paid_count,
+                'total_collected'        => (float) ($charge->total_collected ?? 0),
             ]);
 
         return Inertia::render('Accounting/OtherCharges/Index', [
@@ -96,6 +109,19 @@ class OtherChargeController extends Controller
     }
 
     // ─── Show ─────────────────────────────────────────────────────────────────
+    //
+    // BUG-04 FIX: summary counts now correctly account for all statuses.
+    //
+    // BEFORE:
+    //   $unpaidCount = $students->where('status', 'unpaid')->count();
+    //   Students with 'pending', 'awaiting_confirmation', 'failed', 'cancelled'
+    //   were counted in neither Paid nor Unpaid — they disappeared from the
+    //   summary cards entirely.
+    //
+    // AFTER: three distinct counts, matching what the Vue now renders:
+    //   paid        → status = 'paid'
+    //   in_progress → online payment currently in flight
+    //   unpaid      → genuinely not paid (unpaid, failed, cancelled)
 
     public function show(OtherCharge $otherCharge): Response
     {
@@ -103,9 +129,12 @@ class OtherChargeController extends Controller
 
         $students = $this->service->getStudentsForCharge($otherCharge);
 
-        $paidCount      = $students->where('status', 'paid')->count();
-        $unpaidCount    = $students->where('status', 'unpaid')->count();
-        $totalCollected = $students->where('status', 'paid')->sum('amount_paid');
+        $paidCount       = $students->where('status', 'paid')->count();
+        $inProgressCount = $students->whereIn('status', [
+            'pending', 'awaiting_confirmation', 'awaiting_proof', 'awaiting_approval',
+        ])->count();
+        $unpaidCount     = $students->whereIn('status', ['unpaid', 'failed', 'cancelled'])->count();
+        $totalCollected  = $students->where('status', 'paid')->sum('amount_paid');
 
         return Inertia::render('Accounting/OtherCharges/Show', [
             'charge' => [
@@ -128,6 +157,7 @@ class OtherChargeController extends Controller
             'summary'          => [
                 'total'           => $students->count(),
                 'paid'            => $paidCount,
+                'in_progress'     => $inProgressCount,
                 'unpaid'          => $unpaidCount,
                 'total_collected' => (float) $totalCollected,
             ],
@@ -238,8 +268,8 @@ class OtherChargeController extends Controller
                 Notification::send($matchingStudents, new OtherChargePublished($otherCharge));
 
                 Log::info('OtherChargePublished notification dispatched', [
-                    'charge_id'      => $otherCharge->id,
-                    'student_count'  => $matchingStudents->count(),
+                    'charge_id'     => $otherCharge->id,
+                    'student_count' => $matchingStudents->count(),
                 ]);
             } catch (\Throwable $e) {
                 // Notification failure must NOT block the publish action.

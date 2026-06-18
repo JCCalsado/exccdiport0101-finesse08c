@@ -131,6 +131,22 @@ class OtherChargeService
         });
     }
 
+    // ─── BUG-01 FIX: recordOtcPayment ─────────────────────────────────────────
+    //
+    // BEFORE (broken):
+    //   OtherChargePayment::where(...)->update(['status' => 'cancelled']);  // row stays alive
+    //   OtherChargePayment::create([...]);                                  // UNIQUE violation → crash
+    //
+    // Migration 2026_06_09_000000 added UNIQUE(other_charge_id, user_id).
+    // The old update()+create() pattern keeps the existing row in the table and
+    // then tries to INSERT a second row for the same pair — MySQL throws
+    // SQLSTATE[23000] on every OTC attempt after any prior online payment attempt.
+    //
+    // AFTER (fixed):
+    //   updateOrCreate() — mirrors initiateOnlinePayment(). Overwrites the existing
+    //   row in-place rather than inserting a new one. Clears all PayMongo fields
+    //   so there is no stale online-payment state left on an OTC-paid row.
+
     public function recordOtcPayment(
         OtherCharge $charge,
         User        $student,
@@ -156,22 +172,28 @@ class OtherChargeService
         }
 
         return DB::transaction(function () use ($charge, $student, $orNumber, $notes, $collectedBy) {
-            OtherChargePayment::where('other_charge_id', $charge->id)
-                ->where('user_id', $student->id)
-                ->whereIn('status', ['pending', 'awaiting_proof', 'awaiting_approval'])
-                ->update(['status' => 'cancelled']);
-
-            $payment = OtherChargePayment::create([
-                'other_charge_id' => $charge->id,
-                'user_id'         => $student->id,
-                'amount_paid'     => $charge->amount,
-                'payment_method'  => 'otc',
-                'or_number'       => $orNumber,
-                'status'          => 'paid',
-                'collected_by'    => $collectedBy->id,
-                'paid_at'         => now(),
-                'notes'           => $notes,
-            ]);
+            // updateOrCreate respects the UNIQUE(other_charge_id, user_id) constraint.
+            // If a prior online-payment row exists (pending/awaiting_confirmation/cancelled),
+            // we overwrite it in-place. All PayMongo fields are cleared so the row is clean.
+            $payment = OtherChargePayment::updateOrCreate(
+                [
+                    'other_charge_id' => $charge->id,
+                    'user_id'         => $student->id,
+                ],
+                [
+                    'amount_paid'         => $charge->amount,
+                    'payment_method'      => 'otc',
+                    'or_number'           => $orNumber,
+                    'status'              => 'paid',
+                    'collected_by'        => $collectedBy->id,
+                    'paid_at'             => now(),
+                    'notes'               => $notes,
+                    // Clear any PayMongo fields from a prior online attempt
+                    'paymongo_session_id' => null,
+                    'payment_intent_id'   => null,
+                    'reference'           => null,
+                ]
+            );
 
             Log::info('OtherChargeService: OTC payment recorded', [
                 'charge_id'    => $charge->id,
@@ -179,6 +201,7 @@ class OtherChargeService
                 'or_number'    => $orNumber,
                 'collected_by' => $collectedBy->id,
                 'amount'       => $charge->amount,
+                'was_update'   => ! $payment->wasRecentlyCreated,
             ]);
 
             return $payment;
@@ -193,19 +216,12 @@ class OtherChargeService
             throw new \RuntimeException('This charge has already been paid.');
         }
 
-        // ── Guard: already paid ───────────────────────────────────────────────────
-        // isOwedByStudent() above already checks this, but be explicit here
-        // so the error message is precise if somehow reached directly.
-        //
-        // Note: no "in progress" guard needed. The table has a UNIQUE(other_charge_id, user_id)
-        // constraint — updateOrCreate below reuses the existing row on retry, so a crashed
-        // or abandoned pending session is automatically replaced, not duplicated.
+        // No "in-progress" guard needed. The UNIQUE(other_charge_id, user_id) constraint
+        // means updateOrCreate below reuses the existing row on retry — a crashed or
+        // abandoned pending session is automatically replaced, not duplicated.
 
         $amountCents = (int) round((float) $charge->amount * 100);
 
-        // ── Use updateOrCreate to respect the UNIQUE(other_charge_id, user_id) constraint ──
-        // The table enforces one row per student per charge. On retry after a crash
-        // or cancellation, we reuse the existing row rather than inserting a new one.
         $payment = OtherChargePayment::updateOrCreate(
             [
                 'other_charge_id' => $charge->id,
@@ -367,11 +383,22 @@ class OtherChargeService
         }
     }
 
+    // ─── BUG-02 FIX: handleWebhookFailed ──────────────────────────────────────
+    //
+    // BEFORE: whereIn('status', ['pending', 'awaiting_approval'])
+    //   → 'awaiting_approval' is a bank-transfer state (not PayMongo).
+    //   → 'awaiting_confirmation' (set after student returns from PayMongo)
+    //     was missing — failed webhook left those rows stuck forever.
+    //
+    // AFTER: whereIn('status', ['pending', 'awaiting_confirmation'])
+    //   → Only touches rows in the PayMongo lifecycle.
+    //   → Bank-transfer rows (awaiting_approval) are never touched by webhooks.
+
     public function handleWebhookFailed(string $sessionId, string $paymentIntentId): void
     {
         OtherChargePayment::where('paymongo_session_id', $sessionId)
             ->orWhere('payment_intent_id', $paymentIntentId)
-            ->whereIn('status', ['pending', 'awaiting_approval'])
+            ->whereIn('status', ['pending', 'awaiting_confirmation'])
             ->update(['status' => 'failed']);
 
         Log::info('OtherChargeService::handleWebhookFailed: payment failed', [

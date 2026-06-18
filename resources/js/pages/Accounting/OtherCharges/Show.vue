@@ -45,7 +45,7 @@ interface Charge {
 const props = defineProps<{
     charge: Charge;
     students: ChargeStudent[];
-    summary: { total: number; paid: number; unpaid: number; total_collected: number };
+    summary: { total: number; paid: number; in_progress: number; unpaid: number; total_collected: number };
     canEdit: boolean;
     canRecordPayment: boolean;
     canPublish: boolean;
@@ -116,7 +116,8 @@ const studentStatusBadge = (status: string) => {
         unpaid:                 'bg-gray-100 text-gray-700',
         pending:                'bg-yellow-100 text-yellow-800',
         awaiting_confirmation:  'bg-blue-100 text-blue-800',
-        awaiting_approval:      'bg-blue-100 text-blue-800',
+        awaiting_proof:         'bg-blue-100 text-blue-800',
+        awaiting_approval:      'bg-indigo-100 text-indigo-800',
         failed:                 'bg-red-100 text-red-800',
         cancelled:              'bg-gray-100 text-gray-500',
     };
@@ -129,6 +130,7 @@ const studentStatusLabel = (status: string) => {
         unpaid:                 'Unpaid',
         pending:                'In Progress (Online)',
         awaiting_confirmation:  'Confirming Payment',
+        awaiting_proof:         'Awaiting Proof Upload',
         awaiting_approval:      'Awaiting Verification',
         failed:                 'Failed',
         cancelled:              'Cancelled',
@@ -214,8 +216,16 @@ const isOnlineInProgress = (student: ChargeStudent) =>
                 </div>
             </div>
 
-            <!-- Summary Cards -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <!-- Summary Cards
+                 BUG-04 FIX: added "In Progress" card. Previously students with
+                 pending/awaiting_confirmation/failed/cancelled were counted in neither
+                 Paid nor Unpaid — they vanished from the dashboard entirely.
+                 Now: Paid = 'paid'; In Progress = online/bank payment in flight;
+                 Unpaid = genuinely not paid (unpaid, failed, cancelled).
+                 The In Progress card is conditionally rendered so the grid stays
+                 clean when no in-progress payments exist.
+            -->
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
                 <div class="rounded-xl border border-gray-200 bg-white p-4 text-center shadow-sm">
                     <p class="text-2xl font-bold text-gray-900">{{ summary.total }}</p>
                     <p class="text-xs text-muted-foreground mt-1">Total Students</p>
@@ -224,12 +234,19 @@ const isOnlineInProgress = (student: ChargeStudent) =>
                     <p class="text-2xl font-bold text-green-700">{{ summary.paid }}</p>
                     <p class="text-xs text-muted-foreground mt-1">Paid</p>
                 </div>
+                <div
+                    v-if="summary.in_progress > 0"
+                    class="rounded-xl border border-blue-200 bg-blue-50 p-4 text-center shadow-sm"
+                >
+                    <p class="text-2xl font-bold text-blue-700">{{ summary.in_progress }}</p>
+                    <p class="text-xs text-muted-foreground mt-1">In Progress</p>
+                </div>
                 <div class="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-center shadow-sm">
                     <p class="text-2xl font-bold text-yellow-700">{{ summary.unpaid }}</p>
                     <p class="text-xs text-muted-foreground mt-1">Unpaid</p>
                 </div>
-                <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 text-center shadow-sm">
-                    <p class="text-2xl font-bold text-blue-700">{{ formatCurrency(summary.total_collected) }}</p>
+                <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-center shadow-sm">
+                    <p class="text-2xl font-bold text-indigo-700">{{ formatCurrency(summary.total_collected) }}</p>
                     <p class="text-xs text-muted-foreground mt-1">Total Collected</p>
                 </div>
             </div>
