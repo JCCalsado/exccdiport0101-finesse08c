@@ -210,7 +210,7 @@ const submit = () => {
 
                     <!-- Live preview -->
                     <div class="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-                        <Info class="h-4 w-4 text-blue-600 shrink-0" />
+                        <Info class="h-4 w-4 text-blue-600 flex-shrink-0" />
                         <p class="text-xs text-blue-800">
                             <span v-if="previewLoading">Calculating matching students…</span>
                             <span v-else-if="previewCount !== null">

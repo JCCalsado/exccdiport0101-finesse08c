@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers\Accounting;
 
-use App\Enums\UserRoleEnum;
 use App\Http\Controllers\Controller;
-use App\Models\CourseUnitPreset;
 use App\Models\OtherCharge;
 use App\Models\OtherChargePayment;
 use App\Models\StudentAssessment;
@@ -485,8 +483,7 @@ class OtherChargeController extends Controller
     private function availableSchoolYears(): array
     {
         // Years that actually have active assessments (the real anchor)
-        $fromDb = StudentAssessment::query()
-            ->where('status', 'active')
+        $fromDb = StudentAssessment::where('status', 'active')
             ->distinct()
             ->orderByDesc('school_year')
             ->pluck('school_year')
@@ -510,57 +507,24 @@ class OtherChargeController extends Controller
     /**
      * Course values to populate the Create/Edit form dropdown.
      *
-     * Uses a dynamic merge of the app's canonical course sources so the list
-     * stays current when courses are added, removed, or renamed in the database:
-     *   1. active course unit presets (canonical curriculum source)
-     *   2. active student assessments (currently enrolled/active data)
-     *   3. registered student users (fallback for older or incomplete records)
+     * Pulled from distinct course values on active student_assessments so the
+     * dropdown always matches what's actually stored — never a hardcoded list
+     * of abbreviations that don't exist in the DB.
+     *
+     * WHY THIS REPLACES ['BSEET', 'BSEECT']:
+     *   Those abbreviations don't match any student_assessments.course value.
+     *   The full stored values are e.g. 'BS Engineering Technology - Electrical'.
+     *   When the user selects 'BSEET', buildMatchingStudentsQuery() filters for
+     *   course = 'BSEET' and finds zero rows → preview always shows 0 students.
      */
     private function availableCourses(): array
     {
-        $courseSources = collect([
-            CourseUnitPreset::query()
-                ->where('is_active', true)
-                ->distinct()
-                ->orderBy('course')
-                ->pluck('course')
-                ->filter()
-                ->map(fn ($course) => trim((string) $course))
-                ->filter()
-                ->values()
-                ->all(),
-
-            StudentAssessment::query()
-                ->where('status', 'active')
-                ->whereNotNull('course')
-                ->distinct()
-                ->orderBy('course')
-                ->pluck('course')
-                ->filter()
-                ->map(fn ($course) => trim((string) $course))
-                ->filter()
-                ->values()
-                ->all(),
-
-            User::query()
-                ->where('role', UserRoleEnum::STUDENT->value)
-                ->whereNotNull('course')
-                ->distinct()
-                ->orderBy('course')
-                ->pluck('course')
-                ->filter()
-                ->map(fn ($course) => trim((string) $course))
-                ->filter()
-                ->values()
-                ->all(),
-        ]);
-
-        return $courseSources
-            ->flatten()
-            ->filter()
-            ->unique()
-            ->sort()
+        return StudentAssessment::where('status', 'active')
+            ->whereNotNull('course')
+            ->distinct()
+            ->orderBy('course')
+            ->pluck('course')
             ->values()
-            ->all();
+            ->toArray();
     }
 }
