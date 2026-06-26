@@ -71,10 +71,15 @@ Route::middleware(['auth', 'verified', 'role:student'])->prefix('student')->grou
     // ── Other Charges — Student portal ───────────────────────────────────────
     Route::get('/other-charges', [StudentOtherChargeController::class, 'index'])->name('student.other-charges.index');
     Route::post('/other-charges/{otherCharge}/pay', [StudentOtherChargeController::class, 'initiatePayment'])->name('student.other-charges.pay');
-    Route::post('/other-charges/{otherCharge}/bank-transfer', [StudentOtherChargeController::class, 'initiateBankTransfer'])->name('student.other-charges.bank-transfer');
-    Route::get('/other-charges/payments/{otherChargePayment}/proof', [StudentOtherChargeController::class, 'showProofForm'])->name('student.other-charges.proof.show');
-    Route::post('/other-charges/payments/{otherChargePayment}/proof', [StudentOtherChargeController::class, 'uploadProof'])->name('student.other-charges.proof.upload');
-    Route::delete('/other-charges/payments/{otherChargePayment}/proof', [StudentOtherChargeController::class, 'cancelAwaitingProof'])->name('student.other-charges.proof.cancel');
+
+    // OPTION D — Bank Transfer + Proof Upload
+    // Note: /payments/{otherChargePayment} must come BEFORE /other-charges/{otherCharge}
+    // in the file, as Laravel matches routes in declaration order; a numeric segment
+    // in the wildcard would never conflict here, but explicit ordering avoids any ambiguity.
+    Route::post('/other-charges/{otherCharge}/bank-transfer',           [StudentOtherChargeController::class, 'initiateBankTransfer'])->name('student.other-charges.bank-transfer');
+    Route::get('/other-charges/payments/{otherChargePayment}/proof',    [StudentOtherChargeController::class, 'showProofForm'])         ->name('student.other-charges.proof.show');
+    Route::post('/other-charges/payments/{otherChargePayment}/proof',   [StudentOtherChargeController::class, 'uploadProof'])            ->name('student.other-charges.proof.upload');
+    Route::delete('/other-charges/payments/{otherChargePayment}/proof', [StudentOtherChargeController::class, 'cancelAwaitingProof'])    ->name('student.other-charges.proof.cancel');
 });
 
 // ============================================
@@ -220,10 +225,13 @@ Route::middleware(['auth', 'verified', 'role:accounting,admin'])->prefix('accoun
             Route::put('/{otherCharge}',             [OtherChargeController::class, 'update'])        ->name('update');
             Route::delete('/{otherCharge}',          [OtherChargeController::class, 'destroy'])       ->name('destroy');
             Route::post('/{otherCharge}/publish',    [OtherChargeController::class, 'publish'])       ->name('publish');
-            Route::post('/{otherCharge}/payments',   [OtherChargeController::class, 'recordPayment']) ->name('payments.store');
-            Route::post('/payments/{otherChargePayment}/approve', [OtherChargeController::class, 'approvePayment'])->name('payments.approve');
-            Route::post('/payments/{otherChargePayment}/reject', [OtherChargeController::class, 'rejectPayment'])->name('payments.reject');
-            Route::get('/payments/{otherChargePayment}/proof/serve', [OtherChargeController::class, 'serveProof'])->name('payments.proof.serve');
+            Route::post('/{otherCharge}/payments',                     [OtherChargeController::class, 'recordPayment'])  ->name('payments.store');
+
+            // OPTION D — Bank Transfer Approval (Disbursing Officer + Admin only)
+            // Policy gate: approvePayment() on OtherChargePolicy
+            Route::post('/payments/{otherChargePayment}/approve',     [OtherChargeController::class, 'approvePayment']) ->name('payments.approve');
+            Route::post('/payments/{otherChargePayment}/reject',      [OtherChargeController::class, 'rejectPayment'])  ->name('payments.reject');
+            Route::get('/payments/{otherChargePayment}/proof/serve',  [OtherChargeController::class, 'serveProof'])     ->name('payments.proof.serve');
         });
 });
 
