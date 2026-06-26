@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -177,6 +178,10 @@ class HandleInertiaRequests extends Middleware
 
     private function countRegistrarQueue(): int
     {
+        if (! Schema::hasTable('student_registrations')) {
+            return 0;
+        }
+
         return Cache::remember('registrar_queue_count', now()->addMinutes(5), function () {
             return StudentRegistration::query()
                 ->where(function ($q) {
@@ -192,6 +197,10 @@ class HandleInertiaRequests extends Middleware
 
     private function countFinanceQueue(): int
     {
+        if (! Schema::hasTable('student_registrations')) {
+            return 0;
+        }
+
         return Cache::remember('finance_queue_count', now()->addMinutes(5), function () {
             return StudentRegistration::query()
                 ->where(function ($q) {
