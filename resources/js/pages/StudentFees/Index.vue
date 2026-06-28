@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDataFormatting } from '@/composables/useDataFormatting';
@@ -234,12 +233,9 @@ const submitDrop = () => {
 </script>
 
 <template>
-    <AppLayout>
-        <Head :title="pageTitle" />
-
+    <Head :title="pageTitle" />
+    <AppLayout :breadcrumbs="breadcrumbs">
         <div class="w-full space-y-5 p-6">
-            <Breadcrumbs :items="breadcrumbs" />
-
             <!-- ── CHANGED: Admin header — read-only, no Add Student button ── -->
             <div v-if="isAdmin" class="ccdi-page-header border-l-4 border-l-blue-600 bg-gradient-to-r from-blue-50 to-transparent">
                 <div>
