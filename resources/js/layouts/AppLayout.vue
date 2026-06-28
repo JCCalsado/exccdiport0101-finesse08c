@@ -12,7 +12,7 @@ withDefaults(defineProps<Props>(), {
 </script>
 
 <template>
-    <AppLayout :items="breadcrumbs">
+    <AppLayout :breadcrumbs="breadcrumbs">
         <slot />
     </AppLayout>
 </template>

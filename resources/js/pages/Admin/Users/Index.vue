@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
@@ -45,6 +44,19 @@ const departmentBadge = (dept: string) => {
     return map[dept] ?? 'bg-gray-100 text-gray-700';
 };
 
+/**
+ * Builds the display name for a staff row as a single string.
+ * Deliberately NOT split across multiple template spans — Vue's
+ * compiler strips whitespace-only text nodes containing a newline,
+ * which silently removes the space between adjacent inline elements.
+ * Building the full string here also keeps text color consistent
+ * (no separately-styled fragment that can end up under contrast).
+ */
+const formatStaffName = (admin: Admin): string => {
+    const middle = admin.middle_initial ? ` ${admin.middle_initial}.` : '';
+    return `${admin.last_name}, ${admin.first_name}${middle}`;
+};
+
 const deactivate = (id: number) => {
     if (confirm('Deactivate this Accounting staff member?')) {
         const form = useForm({});
@@ -60,10 +72,8 @@ const reactivate = (id: number) => {
 
 <template>
     <Head title="Users" />
-    <AppLayout>
+    <AppLayout :breadcrumbs="breadcrumbs">
         <div class="w-full p-6">
-            <Breadcrumbs :items="breadcrumbs" />
-
             <div class="mb-6 flex items-center justify-between">
                 <div>
                     <h1 class="text-3xl font-bold text-gray-900">Users</h1>
@@ -112,12 +122,7 @@ const reactivate = (id: number) => {
                                 class="transition-colors hover:bg-gray-50"
                             >
                                 <td class="px-5 py-4">
-                                    <span class="font-medium text-gray-900">
-                                        {{ admin.last_name }}, {{ admin.first_name }}
-                                    </span>
-                                    <span v-if="admin.middle_initial" class="text-gray-400">
-                                        {{ admin.middle_initial }}.
-                                    </span>
+                                    <span class="font-medium text-gray-900">{{ formatStaffName(admin) }}</span>
                                 </td>
                                 <td class="px-5 py-4 text-gray-600">{{ admin.email }}</td>
                                 <td class="px-5 py-4">
@@ -176,7 +181,7 @@ const reactivate = (id: number) => {
                                         <!-- Administrator rows: read-only label -->
                                         <span
                                             v-else-if="admin.department === 'Administrator'"
-                                            class="text-xs italic text-gray-400"
+                                            class="text-xs italic text-gray-500"
                                         >
                                             View only
                                         </span>
@@ -184,7 +189,7 @@ const reactivate = (id: number) => {
                                 </td>
                             </tr>
                             <tr v-if="admins.data.length === 0">
-                                <td colspan="5" class="px-5 py-10 text-center text-gray-400">
+                                <td colspan="5" class="px-5 py-10 text-center text-gray-500">
                                     No users found.
                                 </td>
                             </tr>
