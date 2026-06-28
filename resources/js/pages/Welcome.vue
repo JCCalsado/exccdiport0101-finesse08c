@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import AppLogo from '@/components/AppLogo.vue';
 import { Head, Link, usePage } from '@inertiajs/vue3';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 
 const page = usePage();
+const { dashboardHref } = useDashboardRoute();
 </script>
 
 <template>
@@ -20,7 +22,7 @@ const page = usePage();
                     <AppLogo />
                 </div>
                 <nav class="flex items-center gap-3">
-                    <Link v-if="page.props.auth.user" :href="route('dashboard')" class="rounded-lg px-4 py-2 text-sm font-medium text-blue-700 transition-all hover:bg-blue-100" style="border: 1px solid rgba(30,58,138,0.25);">Dashboard</Link>
+                    <Link v-if="page.props.auth.user" :href="dashboardHref" class="rounded-lg px-4 py-2 text-sm font-medium text-blue-700 transition-all hover:bg-blue-100" style="border: 1px solid rgba(30,58,138,0.25);">Dashboard</Link>
                     <template v-else>
                         <Link :href="route('login')" class="rounded-lg px-4 py-2 text-sm font-medium text-blue-700 transition-all hover:bg-blue-100 hover:text-blue-900">Log in</Link>
                         <Link :href="route('register')" class="rounded-lg px-4 py-2 text-sm font-semibold text-blue-700 transition-all hover:opacity-90" style="background: rgba(30,58,138,0.15); border: 1px solid rgba(30,58,138,0.3);">Register</Link>
@@ -45,7 +47,7 @@ const page = usePage();
 
                 <div class="flex flex-col gap-3 sm:flex-row sm:justify-center">
                     <Link
-                        :href="page.props.auth.user ? route('dashboard') : route('login')"
+                        :href="page.props.auth.user ? dashboardHref : route('login')"
                         class="inline-flex items-center justify-center gap-2 rounded-xl px-7 py-3.5 text-sm font-semibold text-white shadow-lg transition-all hover:scale-105 hover:opacity-90 bg-blue-600 hover:bg-blue-700"
                     >
                         Get Started

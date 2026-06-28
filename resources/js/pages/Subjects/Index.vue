@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { router, Link } from '@inertiajs/vue3'
+import { useDashboardRoute } from '@/composables/useDashboardRoute'
 import AppLayout from '@/layouts/AppLayout.vue'
 import { Input } from '@/components/ui/input'
 import { Loader2, Save, X, Pencil, Plus, Trash2, ExternalLink } from 'lucide-vue-next'
@@ -58,8 +59,10 @@ const props = defineProps<{
 
 // ─── Breadcrumbs ─────────────────────────────────────────────────────────────
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('accounting.dashboard') },
+    { title: 'Dashboard', href: dashboardHref },
     { title: 'Subjects',  href: route('accounting.subjects.index') },
 ]
 

@@ -80,7 +80,6 @@ const modalTransactions = ref<StudentTransaction[]>([])
 
 const breadcrumbs = computed(() => [
     { title: 'Dashboard', href: isAdmin.value ? route('admin.dashboard') : route('accounting.dashboard') },
-    ...(isAdmin.value ? [] : [{ title: 'Accounting', href: route('accounting.dashboard') }]),
     { title: 'Financial Reports' },
 ])
 

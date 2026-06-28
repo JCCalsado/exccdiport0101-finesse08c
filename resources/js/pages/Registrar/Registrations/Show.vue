@@ -103,7 +103,7 @@ const statusBadgeClass: Record<string, string> = {
 
 <template>
     <AppLayout :breadcrumbs="[
-        { title: 'Registrar',           href: route('registrar.dashboard') },
+        { title: 'Dashboard',           href: route('registrar.dashboard') },
         { title: 'Registration Queue',  href: route('registrar.registrations.index') },
         { title: registration.full_name },
     ]">

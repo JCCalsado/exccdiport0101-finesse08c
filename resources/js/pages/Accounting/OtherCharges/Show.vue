@@ -209,7 +209,7 @@ const isBankTransferInProgress = (student: ChargeStudent) =>
 
 <template>
     <AppLayout :breadcrumbs="[
-        { title: 'Accounting', href: route('accounting.dashboard') },
+        { title: 'Dashboard', href: route('accounting.dashboard') },
         { title: 'Other Charges', href: route('accounting.other-charges.index') },
         { title: charge.title },
     ]">

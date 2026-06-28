@@ -9,7 +9,7 @@ defineProps<{
 }>();
 
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('dashboard') },
+    { title: 'Dashboard', href: route('accounting.dashboard') },
     { title: 'Fee Management', href: route('fees.index') },
     { title: 'Create Fee' },
 ];

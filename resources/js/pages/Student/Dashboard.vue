@@ -86,7 +86,7 @@ const props = defineProps<{
     };
 }>();
 
-const breadcrumbs = [{ title: 'Dashboard', href: route('dashboard') }, { title: 'Student Dashboard' }];
+const breadcrumbs = [{ title: 'Dashboard', href: route('student.dashboard') }, { title: 'Student Dashboard' }];
 
 const authUser = computed(() => (usePage().props.auth as any)?.user);
 

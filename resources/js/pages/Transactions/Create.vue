@@ -18,7 +18,7 @@ const submit = () => {
 };
 
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('dashboard') },
+    { title: 'Dashboard', href: route('accounting.dashboard') },
     { title: 'Transactions', href: route('transactions.index') },
     { title: 'Create' },
 ];

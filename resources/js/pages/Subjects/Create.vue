@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue'
 import { Link, useForm } from '@inertiajs/vue3'
+import { useDashboardRoute } from '@/composables/useDashboardRoute'
 
 // ─── Canonical constants ──────────────────────────────────────────────────────
 //
@@ -44,8 +45,10 @@ const props = defineProps<{
 
 // ─── Breadcrumbs ─────────────────────────────────────────────────────────────
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('accounting.dashboard') },
+    { title: 'Dashboard', href: dashboardHref },
     { title: 'Subjects',  href: route('accounting.subjects.index') },
     { title: 'Add Subject' },
 ]

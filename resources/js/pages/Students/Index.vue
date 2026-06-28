@@ -23,7 +23,7 @@ watch([search, statusFilter], () => {
     }, 300);
 });
 
-const breadcrumbs = [{ title: 'Dashboard', href: route('dashboard') }, { title: 'Students' }];
+const breadcrumbs = [{ title: 'Dashboard', href: route('admin.dashboard') }, { title: 'Students' }];
 
 const formatDate = (date: string | null) => {
     return date ? new Date(date).toLocaleDateString() : '-';

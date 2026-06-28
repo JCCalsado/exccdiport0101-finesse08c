@@ -82,7 +82,7 @@ const isDO = computed(() => accountingType.value === 'disbursing_officer');
 const isCashier = computed(() => accountingType.value === 'cashier');
 const isBookkeeper = computed(() => accountingType.value === 'bookkeeper');
 
-const breadcrumbs = [{ title: 'Dashboard', href: route('dashboard') }, { title: 'Accounting Dashboard' }];
+const breadcrumbs = [{ title: 'Dashboard', href: route('accounting.dashboard') }, { title: 'Accounting Dashboard' }];
 
 const activeTab = ref<'overview' | 'payments' | 'balances'>('overview');
 

@@ -57,13 +57,13 @@ const isAccounting = computed(() => (page.props.auth as any)?.user?.role === 'ac
 const breadcrumbs = computed(() => {
     if (isAccounting.value) {
         return [
-            { title: 'Accounting', href: route('accounting.dashboard') },
+            { title: 'Dashboard', href: route('accounting.dashboard') },
             { title: 'Notifications', href: route('accounting.notifications.index') },
             { title: props.notification.title, href: route('accounting.notifications.show', props.notification.id) },
         ];
     }
     return [
-        { title: 'Admin', href: route('admin.dashboard') },
+        { title: 'Dashboard', href: route('admin.dashboard') },
         { title: 'Notifications', href: route('admin.notifications.index') },
         { title: props.notification.title, href: route('admin.notifications.show', props.notification.id) },
     ];

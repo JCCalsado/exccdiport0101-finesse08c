@@ -21,7 +21,7 @@ const props = defineProps<{
     categories: string[];
 }>();
 
-const breadcrumbs = [{ title: 'Dashboard', href: route('dashboard') }, { title: 'Fee Management', href: route('fees.index') }, { title: 'Edit Fee' }];
+const breadcrumbs = [{ title: 'Dashboard', href: route('accounting.dashboard') }, { title: 'Fee Management', href: route('fees.index') }, { title: 'Edit Fee' }];
 
 const form = useForm({
     name: props.fee.name,

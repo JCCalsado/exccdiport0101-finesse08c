@@ -2,6 +2,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDataFormatting } from '@/composables/useDataFormatting';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, router, usePage, useForm } from '@inertiajs/vue3';
 import { Edit, Eye, Plus, Search, UserPlus, UserX } from 'lucide-vue-next';
@@ -77,7 +78,8 @@ const pageDescription = computed(() => isAdmin.value
     ? 'View student enrollment and fee information (read-only)'
     : 'Manage student assessments and fee records');
 
-const breadcrumbs = computed(() => [{ title: 'Dashboard', href: route('dashboard') }, { title: pageTitle.value }]);
+const { dashboardHref } = useDashboardRoute();
+const breadcrumbs = computed(() => [{ title: 'Dashboard', href: dashboardHref }, { title: pageTitle.value }]);
 
 const courses = computed(() => props.courses);
 const yearLevels = computed(() => props.yearLevels);

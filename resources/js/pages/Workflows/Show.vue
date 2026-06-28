@@ -132,7 +132,7 @@ defineProps<{
 }>();
 
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('admin.dashboard') },
+    { title: 'Dashboard', href: route('accounting.dashboard') },
     { title: 'Workflows', href: route('workflows.index') },
     { title: 'Details' },
 ];

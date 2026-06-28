@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useDataFormatting } from '@/composables/useDataFormatting';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
@@ -41,8 +42,10 @@ const props = defineProps<{
     counts: { pending: number; approved: number; rejected: number };
 }>();
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('accounting.dashboard') },
+    { title: 'Dashboard', href: dashboardHref },
     { title: 'Payment Approvals', href: route('approvals.index') },
 ];
 

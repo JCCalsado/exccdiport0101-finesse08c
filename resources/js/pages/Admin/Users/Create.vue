@@ -4,7 +4,7 @@ import { Head } from '@inertiajs/vue3';
 import AdminForm from './Form.vue';
 
 const breadcrumbs = [
-    { title: 'Admin', href: route('admin.dashboard') },
+    { title: 'Dashboard', href: route('admin.dashboard') },
     { title: 'Admin Users', href: route('users.index') },
     { title: 'Add Accounting Staff', href: route('users.create') },
 ];

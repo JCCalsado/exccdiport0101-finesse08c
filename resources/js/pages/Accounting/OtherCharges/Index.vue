@@ -44,7 +44,7 @@ const targetLabel = (charge: OtherCharge): string => {
 
 <template>
     <AppLayout :breadcrumbs="[
-        { title: 'Accounting', href: route('accounting.dashboard') },
+        { title: 'Dashboard', href: route('accounting.dashboard') },
         { title: 'Other Charges' },
     ]">
         <Head title="Other Charges" />

@@ -81,7 +81,7 @@ const actionableTabs = new Set(['pending', 'needs_revision']);
 
 <template>
     <AppLayout :breadcrumbs="[
-        { title: 'Registrar', href: route('registrar.dashboard') },
+        { title: 'Dashboard', href: route('registrar.dashboard') },
         { title: 'Registration Queue' }
     ]">
         <Head title="Registration Queue" />

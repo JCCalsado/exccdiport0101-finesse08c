@@ -41,7 +41,7 @@ interface Props {
 const props = defineProps<Props>();
 
 const breadcrumbs = [
-    { title: 'Admin', href: route('admin.dashboard') },
+    { title: 'Dashboard', href: route('admin.dashboard') },
     { title: 'Payment Terms Management', href: route('admin.payment-terms.index') },
 ];
 

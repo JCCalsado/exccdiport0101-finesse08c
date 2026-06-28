@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/vue3';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 import {
     BadgeDollarSign, Banknote, BarChart3, Bell, BookOpen, CheckCircle2,
     ClipboardList, CreditCard, GraduationCap, History, LayoutGrid,
@@ -21,6 +22,7 @@ const safeRoute = (name: string, params?: any): string => {
 };
 
 const page = usePage();
+const { dashboardHref } = useDashboardRoute();
 
 const userRole       = computed(() => (page.props.auth as any)?.user?.role            ?? 'student');
 const accountingType = computed(() => (page.props.auth as any)?.user?.accounting_type ?? null);
@@ -144,7 +146,7 @@ const footerNavItems: NavItem[] = [];
             <SidebarMenu>
                 <SidebarMenuItem>
                     <SidebarMenuButton size="lg" as-child>
-                        <Link :href="route('dashboard')">
+                        <Link :href="dashboardHref">
                             <AppLogo />
                         </Link>
                     </SidebarMenuButton>

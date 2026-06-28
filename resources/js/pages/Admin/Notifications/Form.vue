@@ -73,13 +73,13 @@ const isEditing    = computed(() => !!props.notification?.id);
 const breadcrumbs = computed(() => {
     if (isAccounting.value) {
         return [
-            { title: 'Accounting', href: route('accounting.dashboard') },
+            { title: 'Dashboard', href: route('accounting.dashboard') },
             { title: 'Notifications', href: route('accounting.notifications.index') },
             { title: isEditing.value ? 'Edit Notification' : 'Create Notification', href: '#' },
         ];
     }
     return [
-        { title: 'Admin', href: route('admin.dashboard') },
+        { title: 'Dashboard', href: route('admin.dashboard') },
         { title: 'Notifications', href: route('admin.notifications.index') },
         { title: isEditing.value ? 'Edit Notification' : 'Create Notification', href: '#' },
     ];

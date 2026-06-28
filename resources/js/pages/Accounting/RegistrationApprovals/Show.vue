@@ -144,7 +144,7 @@ const studentTypeLabel: Record<string, string> = {
 
 <template>
     <AppLayout :breadcrumbs="[
-        { title: 'Accounting', href: route('accounting.dashboard') },
+        { title: 'Dashboard', href: route('accounting.dashboard') },
         { title: 'Registration Approvals', href: route('accounting.registrations.index') },
         { title: registration.full_name },
     ]">

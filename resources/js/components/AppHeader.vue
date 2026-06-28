@@ -26,6 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const page = usePage();
 const auth = computed(() => page.props.auth);
+const { dashboardHref } = useDashboardRoute();
 
 const isCurrentRoute = computed(() => (url: NonNullable<InertiaLinkProps['href']>) => urlIsActive(url, page.url));
 
@@ -37,7 +38,7 @@ const activeItemStyles = computed(
 const mainNavItems: NavItem[] = [
     {
         title: 'Dashboard',
-        href: route('dashboard'),
+        href: dashboardHref,
         icon: LayoutGrid,
     },
 ];
@@ -104,7 +105,7 @@ const rightNavItems: NavItem[] = [
                     </Sheet>
                 </div>
 
-                <Link :href="route('dashboard')" class="flex items-center gap-x-2">
+                <Link :href="dashboardHref" class="flex items-center gap-x-2">
                     <AppLogo />
                 </Link>
 

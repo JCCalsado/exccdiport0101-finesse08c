@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDataFormatting } from '@/composables/useDataFormatting';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import {
@@ -783,8 +784,10 @@ const txSubjectPanels = computed(
 
 // ─── Payment form ─────────────────────────────────────────────────────────────
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('admin.dashboard') },
+    { title: 'Dashboard', href: dashboardHref },
     { title: 'Student Fee Management', href: route('student-fees.index') },
     { title: props.student.name },
 ];

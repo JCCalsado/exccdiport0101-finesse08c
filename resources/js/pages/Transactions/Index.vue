@@ -6,6 +6,7 @@ import { Head, router } from '@inertiajs/vue3';
 import { BookOpen, ChevronDown, Receipt } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import { useDataFormatting } from '@/composables/useDataFormatting';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 
 const { formatCurrency } = useDataFormatting();
 
@@ -100,8 +101,10 @@ const props = defineProps<Props>();
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: props.backUrl ?? route('dashboard') },
+    { title: 'Dashboard', href: props.backUrl ?? dashboardHref },
     { title: 'Transaction History' },
 ];
 

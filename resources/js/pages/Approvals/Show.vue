@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useDataFormatting } from '@/composables/useDataFormatting';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, router, useForm } from '@inertiajs/vue3';
 import { CheckCircle2, Download, ExternalLink, FileText, ImageOff, Info, RotateCcw, XCircle } from 'lucide-vue-next';
@@ -103,8 +104,10 @@ const { formatCurrency } = useDataFormatting();
 
 // ─── Breadcrumbs ─────────────────────────────────────────────────────────────
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('accounting.dashboard') },
+    { title: 'Dashboard', href: dashboardHref },
     { title: 'Approvals', href: route('approvals.index') },
     { title: 'Details' },
 ];

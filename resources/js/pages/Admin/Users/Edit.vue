@@ -10,7 +10,7 @@ interface Props {
 const props = defineProps<Props>();
 
 const breadcrumbs = [
-    { title: 'Admin', href: route('admin.dashboard') },
+    { title: 'Dashboard', href: route('admin.dashboard') },
     { title: 'Admin Users', href: route('users.index') },
     {
         title: `Edit: ${props.admin.last_name}, ${props.admin.first_name}`,

@@ -77,7 +77,7 @@ const studentTypeLabel: Record<string, string> = {
 </script>
 
 <template>
-    <AppLayout :breadcrumbs="[{ title: 'Accounting', href: route('accounting.dashboard') }, { title: 'Registration Approvals' }]">
+    <AppLayout :breadcrumbs="[{ title: 'Dashboard', href: route('accounting.dashboard') }, { title: 'Registration Approvals' }]">
         <Head title="Registration Approvals" />
 
         <div class="space-y-5 p-4 md:p-6">

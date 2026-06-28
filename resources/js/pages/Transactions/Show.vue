@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useDataFormatting } from '@/composables/useDataFormatting';
+import { useDashboardRoute } from '@/composables/useDashboardRoute';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, Link } from '@inertiajs/vue3';
 const { formatCurrency } = useDataFormatting();
@@ -33,8 +34,10 @@ interface Props {
 
 const props = defineProps<Props>();
 
+const { dashboardHref } = useDashboardRoute();
+
 const breadcrumbs = [
-    { title: 'Dashboard', href: route('dashboard') },
+    { title: 'Dashboard', href: dashboardHref },
     { title: 'Transactions', href: route('transactions.index') },
     { title: `#${props.transaction.reference || props.transaction.id}` },
 ];
