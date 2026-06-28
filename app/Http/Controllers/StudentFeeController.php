@@ -1380,8 +1380,20 @@ class StudentFeeController extends Controller
             //   AccountService::recalculate — never derived from transaction sums).
             // totalPaid: derived as (total − remaining) so it stays consistent
             //   with the recalculate chain even if transaction amounts diverge.
+            //
+            // ✅ FIX (Receipt button always showed "Fully Paid"): StudentAssessment
+            //    has NO `outstanding_balance` column or accessor. Reading
+            //    $assessment->outstanding_balance silently returned null via
+            //    Eloquent's magic getter -> (float) null -> 0.00 on every receipt,
+            //    which forced totalPaid = totalAssessment regardless of how much
+            //    the student had actually paid. $paymentTerms (fetched above) IS
+            //    the authoritative per-term balance source the comment describes —
+            //    sum it directly instead of referencing a phantom attribute.
+            //    Clamped to >= 0 per term, matching the same convention used in
+            //    show() (max(0, ...) per paymentTerms row) so a stale negative
+            //    balance can never make remainingBalance negative here.
             $totalAssessment  = (float) $assessment->total_assessment;
-            $remainingBalance = round((float) $assessment->outstanding_balance, 2);
+            $remainingBalance = round($paymentTerms->sum(fn ($t) => max(0, (float) $t->balance)), 2);
             $totalPaid        = round($totalAssessment - $remainingBalance, 2);
 
             $receiptPdf = Pdf::loadView('pdf.receipt', [

@@ -135,6 +135,8 @@ const props = withDefaults(defineProps<Props>(), {
     otherChargePayments: () => [],
 });
 
+const student = props.student;
+
 // ─── Assessment selector ────────────────────────────────────────────────────
 
 const { formatCurrency } = useDataFormatting();
