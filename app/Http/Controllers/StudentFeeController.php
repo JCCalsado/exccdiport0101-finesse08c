@@ -1350,15 +1350,38 @@ class StudentFeeController extends Controller
         // Generates a CONSOLIDATED receipt for ALL paid transactions under the
         // selected assessment — not just the latest one.
         if ($request->query('type') === 'receipt') {
+            $assessmentStartYear = (int) explode('-', $assessment->school_year)[0];
+
+            $transactionScope = fn ($q) => $q
+                ->whereJsonContains('meta->assessment_id', $assessment->id)
+                ->orWhere(function ($inner) use ($assessment, $assessmentStartYear) {
+                    $inner->where('year', $assessmentStartYear)
+                          ->where('semester', $assessment->semester);
+                });
+
             $transactions = $user->transactions()
                 ->where('kind', 'payment')
-                ->where('status', 'paid')
-                ->whereJsonContains('meta->assessment_id', $assessment->id)
+                ->where('status', PaymentStatus::PAID->value)
+                ->where($transactionScope)
                 ->orderBy('paid_at', 'asc')
                 ->get();
 
             if ($transactions->isEmpty()) {
-                abort(404, 'No paid transactions found for this assessment.');
+                $hasPendingApproval = $user->transactions()
+                    ->where('kind', 'payment')
+                    ->where('status', PaymentStatus::AWAITING_APPROVAL->value)
+                    ->where($transactionScope)
+                    ->exists();
+
+                if ($hasPendingApproval) {
+                    return redirect()
+                        ->route('student-fees.show', $userId)
+                        ->with('flash.warning', 'Payments are awaiting approval. Receipt will be available once confirmed.');
+                }
+
+                return redirect()
+                    ->route('student-fees.show', $userId)
+                    ->with('flash.error', 'No confirmed payments found. Please record a payment before generating a receipt.');
             }
 
             $student = $user->load('account', 'student');
