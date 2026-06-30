@@ -110,10 +110,7 @@ const reactivate = (id: number) => {
                             >
                                 <td class="px-5 py-4">
                                     <span class="font-medium text-gray-900">
-                                        {{ admin.last_name }}, {{ admin.first_name }}
-                                    </span>
-                                    <span v-if="admin.middle_initial" class="text-gray-400">
-                                        {{ admin.middle_initial }}.
+                                        {{ admin.last_name }}, {{ admin.first_name }}{{ admin.middle_initial ? ' ' + admin.middle_initial + '.' : '' }}
                                     </span>
                                 </td>
                                 <td class="px-5 py-4 text-gray-600">{{ admin.email }}</td>
