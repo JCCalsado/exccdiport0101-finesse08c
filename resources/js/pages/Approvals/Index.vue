@@ -67,7 +67,7 @@ const approveForm = useForm({});
 // Helper accessors
 const getStudentName = (a: Approval) => {
     const u = a.workflow_instance?.workflowable?.user;
-    return u?.name ?? (u ? `${u.last_name}, ${u.first_name}` : 'Unknown Student');
+    return u ? u.name : 'Unknown Student';
 };
 const getAccountId = (a: Approval) => a.workflow_instance?.workflowable?.user?.account_id ?? '—';
 const getReference = (a: Approval) => a.workflow_instance?.workflowable?.reference ?? '—';

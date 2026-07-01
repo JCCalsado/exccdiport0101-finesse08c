@@ -192,7 +192,7 @@ const reactivate = () => {
                             <dt class="text-gray-500">Created by</dt>
                             <dd class="mt-1 text-gray-900">
                                 <span v-if="admin.createdByUser">
-                                    {{ admin.createdByUser.name ?? `${admin.createdByUser.last_name}, ${admin.createdByUser.first_name}` }}
+                                    {{ admin.createdByUser.name }}
                                 </span>
                                 <span v-else class="text-gray-400">System</span>
                             </dd>
@@ -201,7 +201,7 @@ const reactivate = () => {
                             <dt class="text-gray-500">Last updated by</dt>
                             <dd class="mt-1 text-gray-900">
                                 <span v-if="admin.updatedByUser">
-                                    {{ admin.updatedByUser.name ?? `${admin.updatedByUser.last_name}, ${admin.updatedByUser.first_name}` }}
+                                    {{ admin.updatedByUser.name }}
                                 </span>
                                 <span v-else class="text-gray-400">—</span>
                             </dd>

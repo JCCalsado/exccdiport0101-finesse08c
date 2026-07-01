@@ -13,7 +13,7 @@ const breadcrumbs = [
     { title: 'Dashboard', href: route('admin.dashboard') },
     { title: 'Admin Users', href: route('users.index') },
     {
-        title: `Edit: ${props.admin.name ?? `${props.admin.last_name}, ${props.admin.first_name}`}`,
+        title: `Edit: ${props.admin.name}`,
         href: route('users.edit', props.admin.id),
     },
 ];
