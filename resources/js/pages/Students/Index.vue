@@ -83,7 +83,7 @@ const formatDate = (date: string | null) => {
                     <tbody class="divide-y divide-gray-100 bg-white">
                         <tr v-for="student in students.data" :key="student.id" class="hover:bg-gray-50">
                             <td class="px-6 py-4 text-sm text-gray-700">{{ student.student_number }}</td>
-                            <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ student.user?.first_name }} {{ student.user?.last_name }}</td>
+                            <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ student.user?.name }}</td>
                             <td class="px-6 py-4 text-sm text-gray-700">{{ student.user?.email }}</td>
                             <td class="px-6 py-4 text-sm font-semibold capitalize">
                                 <span :class="['status-badge', `status-${student.enrollment_status?.toLowerCase()}`]">

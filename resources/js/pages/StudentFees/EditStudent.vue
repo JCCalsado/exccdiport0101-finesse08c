@@ -11,6 +11,7 @@ interface StudentData {
   student_id: string
   user: {
     id: number
+    name: string
     first_name: string
     last_name: string
     middle_initial: string | null
@@ -79,7 +80,7 @@ const submit = () => {
         <div>
           <h1 class="text-3xl font-bold">Edit Student Information</h1>
           <p class="mt-2 text-gray-600">
-            <strong>{{ props.student.user.last_name }}, {{ props.student.user.first_name }}{{ props.student.user.middle_initial ? ' ' + props.student.user.middle_initial + '.' : '' }}</strong>
+            <strong>{{ props.student.user.name }}</strong>
             <br />
             Account ID: <code>{{ props.student.student_id }}</code>
           </p>

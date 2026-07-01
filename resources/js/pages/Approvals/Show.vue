@@ -32,7 +32,7 @@ interface Approval {
             meta?: TransactionMeta;
             type?: string;
             payment_channel?: string;
-            user?: { first_name: string; last_name: string; account_id: string };
+            user?: { name: string; first_name: string; last_name: string; account_id: string };
         };
     };
 }
@@ -41,6 +41,7 @@ interface Student {
     id: number;
     student_id: string | null;
     user?: {
+        name: string;
         first_name: string;
         last_name: string;
         account_id: string;
@@ -393,9 +394,9 @@ const processedTermCount = computed((): number =>
                         <p class="font-semibold">
                             {{
                                 student?.user
-                                    ? `${student.user.last_name}, ${student.user.first_name}`
+                                    ? student.user.name
                                     : approval.workflow_instance?.workflowable?.user
-                                        ? `${approval.workflow_instance.workflowable.user.last_name}, ${approval.workflow_instance.workflowable.user.first_name}`
+                                        ? approval.workflow_instance.workflowable.user.name
                                         : '—'
                             }}
                         </p>

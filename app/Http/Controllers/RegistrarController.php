@@ -137,7 +137,7 @@ class RegistrarController extends Controller
             'registration' => $this->serializeForDetail($registration),
             'duplicates'   => $duplicates->map(fn($d) => [
                 'id'           => $d->id,
-                'full_name'    => $d->last_name . ', ' . $d->first_name,
+                'full_name'    => $d->full_name,
                 'email'        => $d->email,
                 'status'       => $d->status->value,
                 'submitted_at' => $d->submitted_at?->format('M d, Y'),

@@ -148,12 +148,6 @@ class User extends Authenticatable
         return "{$this->last_name}, {$this->first_name}{$mi}";
     }
 
-    public function getFullNameAttribute(): string
-    {
-        $mi = $this->middle_initial ? "{$this->middle_initial}." : '';
-        return "{$this->last_name}, {$this->first_name} {$mi}";
-    }
-
     // ========== SCOPES ==========
 
     public function scopeActive($query)

@@ -145,7 +145,7 @@ class StudentController extends Controller
         ]);
 
         $name = $student->user
-            ? "{$student->user->last_name}, {$student->user->first_name}"
+            ? $student->user->name
             : $student->student_id;
 
         return back()->with('success', "{$name} has been reinstated and is now active.");
@@ -453,7 +453,7 @@ class StudentController extends Controller
                     'status'        => $instance->status,
                     'current_step'  => $instance->current_step,
                     'approver_name' => $anyApproval?->approver
-                                        ? $anyApproval->approver->last_name . ', ' . $anyApproval->approver->first_name
+                                        ? $anyApproval->approver->name
                                         : null,
                     'comment'       => $anyApproval?->comments ?? null,
                     'course'        => $course,

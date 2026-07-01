@@ -13,6 +13,7 @@ interface Student {
     updated_at: string;
     user?: {
         id: number;
+        name: string;
         first_name: string;
         last_name: string;
         middle_initial: string | null;
@@ -182,8 +183,7 @@ const canReinstate = (student: Student) => ['dropped', 'inactive'].includes(stud
                         <tr v-for="student in students.data" :key="student.id" class="transition-colors hover:bg-gray-50">
                             <td class="px-5 py-4 font-mono text-xs text-gray-700">{{ student.student_id }}</td>
                             <td class="px-5 py-4 font-medium text-gray-900">
-                                {{ student.user?.last_name }}, {{ student.user?.first_name }}
-                                <span v-if="student.user?.middle_initial" class="text-gray-400"> {{ student.user.middle_initial }}. </span>
+                                {{ student.user?.name }}
                             </td>
                             <td class="px-5 py-4 text-gray-600">{{ student.user?.email }}</td>
                             <td class="px-5 py-4 text-gray-700">{{ student.user?.course }}</td>
@@ -270,7 +270,7 @@ const canReinstate = (student: Student) => ['dropped', 'inactive'].includes(stud
                         <p class="text-sm text-gray-600">
                             You are reinstating
                             <span class="font-semibold text-gray-900">
-                                {{ selectedStudent?.user?.last_name }}, {{ selectedStudent?.user?.first_name }}
+                                {{ selectedStudent?.user?.name }}
                             </span>
                             from
                             <span class="font-medium text-red-600 capitalize">{{ selectedStudent?.enrollment_status }}</span>

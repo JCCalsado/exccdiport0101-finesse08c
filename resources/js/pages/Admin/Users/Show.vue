@@ -16,7 +16,7 @@ const showDeactivateWarning = ref(false);
 const breadcrumbs = [
     { title: 'Admin', href: route('admin.dashboard') },
     { title: 'Admin Users', href: route('users.index') },
-    { title: `${props.admin.last_name}, ${props.admin.first_name}`, href: route('users.show', props.admin.id) },
+    { title: `${props.admin.name ?? ''}`, href: route('users.show', props.admin.id) },
 ];
 
 const formatDate = (d: string | null) =>
@@ -53,7 +53,7 @@ const reactivate = () => {
 </script>
 
 <template>
-    <Head :title="`Admin: ${admin.last_name}, ${admin.first_name}`" />
+    <Head :title="`Admin: ${admin.name}`" />
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="w-full p-6">
             <div class="mb-6 flex items-center justify-between">
@@ -80,7 +80,7 @@ const reactivate = () => {
                     <h2 class="text-lg font-bold text-gray-900">Deactivate Staff Member?</h2>
                     <p class="mt-3 text-gray-600">
                         This will deactivate the account for
-                        <strong>{{ admin.last_name }}, {{ admin.first_name }}</strong>.
+                        <strong>{{ admin.name }}</strong>.
                     </p>
                     <p class="mt-2 text-sm text-gray-500">
                         They will no longer be able to access the system. You can reactivate this account at any time.
@@ -96,7 +96,7 @@ const reactivate = () => {
                 <!-- Header card -->
                 <div class="rounded-lg border border-gray-100 bg-white p-6 shadow-sm">
                     <h1 class="text-2xl font-bold text-gray-900">
-                        {{ admin.last_name }}, {{ admin.first_name }}{{ admin.middle_initial ? ' ' + admin.middle_initial + '.' : '' }}
+                        {{ admin.name }}
                     </h1>
                     <p class="mt-1 text-gray-500">{{ admin.email }}</p>
                     <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -192,7 +192,7 @@ const reactivate = () => {
                             <dt class="text-gray-500">Created by</dt>
                             <dd class="mt-1 text-gray-900">
                                 <span v-if="admin.createdByUser">
-                                    {{ admin.createdByUser.last_name }}, {{ admin.createdByUser.first_name }}
+                                    {{ admin.createdByUser.name ?? `${admin.createdByUser.last_name}, ${admin.createdByUser.first_name}` }}
                                 </span>
                                 <span v-else class="text-gray-400">System</span>
                             </dd>
@@ -201,7 +201,7 @@ const reactivate = () => {
                             <dt class="text-gray-500">Last updated by</dt>
                             <dd class="mt-1 text-gray-900">
                                 <span v-if="admin.updatedByUser">
-                                    {{ admin.updatedByUser.last_name }}, {{ admin.updatedByUser.first_name }}
+                                    {{ admin.updatedByUser.name ?? `${admin.updatedByUser.last_name}, ${admin.updatedByUser.first_name}` }}
                                 </span>
                                 <span v-else class="text-gray-400">—</span>
                             </dd>

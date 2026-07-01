@@ -33,12 +33,6 @@ class StudentFeeController extends Controller
     //  HELPERS
     // ─────────────────────────────────────────────────────────────
 
-    private function buildStudentName(User $user): string
-    {
-        $mi = $user->middle_initial ? ' ' . strtoupper($user->middle_initial) . '.' : '';
-        return $user->last_name . ', ' . $user->first_name . $mi;
-    }
-
     /**
      * Advance a year level string by one step.
      *
@@ -146,7 +140,7 @@ class StudentFeeController extends Controller
             'id'                => $u->id,
             'student_db_id'     => $u->student?->id,
             'account_id'        => $u->account_id,
-            'name'              => $this->buildStudentName($u),
+            'name'              => $u->name,
             'course'            => $u->course,
             'year_level'        => $u->year_level,
             'is_irregular'      => (bool) $u->is_irregular,
@@ -210,7 +204,7 @@ class StudentFeeController extends Controller
             if ($student) {
                 $preselectedStudent = [
                     'id'                => $student->id,
-                    'name'              => $this->buildStudentName($student),
+                    'name'              => $student->name,
                     'account_id'        => $student->account_id,
                     'course'            => $student->course,
                     'year_level'        => $student->year_level,
@@ -787,7 +781,7 @@ class StudentFeeController extends Controller
             'student' => [
                 'id'            => $user->id,
                 'student_db_id' => $user->student?->id,
-                'name'          => $this->buildStudentName($user),
+                'name'          => $user->name,
                 'account_id'    => $user->account_id,
                 'course'        => $user->course,
                 'year_level'    => $user->year_level,
@@ -873,7 +867,7 @@ class StudentFeeController extends Controller
         return Inertia::render('StudentFees/Edit', [
             'student' => [
                 'id'           => $user->id,
-                'name'         => $this->buildStudentName($user),
+                'name'         => $user->name,
                 'account_id'   => $user->account_id,
                 'course'       => $user->course,
                 'year_level'   => $user->year_level,
@@ -1077,7 +1071,7 @@ class StudentFeeController extends Controller
 
                 return [
                     'id'                       => $u->id,
-                    'name'                     => $this->buildStudentName($u),
+                    'name'                     => $u->name,
                     'account_id'               => $u->account_id,
                     'course'                   => $u->course,
                     'year_level'               => $u->year_level,
@@ -1720,7 +1714,7 @@ class StudentFeeController extends Controller
                 'or_number'        => $validated['or_number'],
             ], false);
 
-            return back()->with('success', 'Payment of ₱' . number_format($paidAmount, 2) . ' recorded for ' . $this->buildStudentName($student) . '.');
+            return back()->with('success', 'Payment of ₱' . number_format($paidAmount, 2) . ' recorded for ' . $student->name . '.');
         } catch (\Exception $e) {
             Log::error('storePayment failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
             return back()->withErrors(['payment' => 'Payment processing failed: ' . $e->getMessage()]);
@@ -1783,7 +1777,7 @@ class StudentFeeController extends Controller
 
         return redirect()
             ->route('student-fees.index')
-            ->with('success', "Student {$this->buildStudentName($targetUser)} has been marked as Dropped.");
+            ->with('success', "Student {$targetUser->name} has been marked as Dropped.");
     }
 
     // ─────────────────────────────────────────────────────────────

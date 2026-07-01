@@ -31,7 +31,7 @@ interface Approval {
             payment_channel?: string;
             meta?: { term_name?: string; description?: string };
             type?: string;
-            user?: { first_name: string; last_name: string; account_id: string };
+            user?: { name: string; first_name: string; last_name: string; account_id: string };
         };
     };
 }
@@ -67,7 +67,7 @@ const approveForm = useForm({});
 // Helper accessors
 const getStudentName = (a: Approval) => {
     const u = a.workflow_instance?.workflowable?.user;
-    return u ? `${u.last_name}, ${u.first_name}` : 'Unknown Student';
+    return u?.name ?? (u ? `${u.last_name}, ${u.first_name}` : 'Unknown Student');
 };
 const getAccountId = (a: Approval) => a.workflow_instance?.workflowable?.user?.account_id ?? '—';
 const getReference = (a: Approval) => a.workflow_instance?.workflowable?.reference ?? '—';

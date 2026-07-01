@@ -5,6 +5,7 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 
 interface Admin {
     id: number;
+    name: string;
     last_name: string;
     first_name: string;
     middle_initial: string | null;
@@ -110,7 +111,7 @@ const reactivate = (id: number) => {
                             >
                                 <td class="px-5 py-4">
                                     <span class="font-medium text-gray-900">
-                                        {{ admin.last_name }}, {{ admin.first_name }}{{ admin.middle_initial ? ' ' + admin.middle_initial + '.' : '' }}
+                                        {{ admin.name }}
                                     </span>
                                 </td>
                                 <td class="px-5 py-4 text-gray-600">{{ admin.email }}</td>

@@ -675,7 +675,7 @@ class NotificationController extends Controller
             ->get()
             ->map(fn ($s) => [
                 'id'    => $s->id,
-                'name'  => "{$s->last_name}, {$s->first_name}" . ($s->middle_initial ? " {$s->middle_initial}." : ''),
+                'name'  => $s->name,
                 'email' => $s->email,
             ]);
     }
