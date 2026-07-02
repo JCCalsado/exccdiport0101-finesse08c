@@ -30,7 +30,7 @@ import {
     Plus,
     ReceiptText,
 } from 'lucide-vue-next';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -970,8 +970,31 @@ watch(
     },
 );
 
+// Deep link from StudentFees/Create.vue's "Completed Semesters" card: the
+// "View Assessment →" link sends ?expand=<assessment_id> alongside the
+// student id. On arrival, auto-expand that row in Academic History and
+// scroll it into view so the user actually lands on the subject list
+// instead of a collapsed row they have to hunt for.
+function expandFromQueryParam() {
+    const expandId = new URLSearchParams(window.location.search).get('expand');
+    if (!expandId) return;
+
+    const targetId = Number(expandId);
+    const exists = academicHistory.value.some((entry) => entry.id === targetId);
+    if (!exists) return; // stale/invalid id — don't expand or scroll to nothing
+
+    expandedHistoryIds.value.add(targetId);
+
+    nextTick(() => {
+        document
+            .getElementById(`academic-history-row-${targetId}`)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+}
+
 onMounted(() => {
     autoExpandCurrentTerm();
+    expandFromQueryParam();
 });
 
 // ─── ✅ FIXED submitPayment ──────────────────────────────────────────────────
@@ -1798,6 +1821,7 @@ const academicTotals = computed(() => {
                     <div v-else class="divide-y">
                         <div
                             v-for="entry in academicHistory"
+                            :id="`academic-history-row-${entry.id}`"
                             :key="entry.id"
                             class="overflow-hidden"
                         >

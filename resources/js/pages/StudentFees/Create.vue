@@ -30,6 +30,8 @@ interface PaidSemester {
   assessment_id: number
   total_assessment: number
   year_level: string | null
+  subject_count: number
+  total_units: number
 }
 
 interface PreselectedStudent {
@@ -586,6 +588,10 @@ const paidSchoolYears = computed(() => {
   return years.sort((a, b) => b.localeCompare(a))
 })
 
+function paidSemesterFor(sem: string, year: string): PaidSemester | undefined {
+  return paidSemesters.value.find((ps) => ps.semester === sem && ps.school_year === year)
+}
+
 const SEMESTERS: Array<'1st' | '2nd' | 'Summer'> = ['1st', '2nd', 'Summer']
 
 function semLabel(s: string) {
@@ -746,14 +752,42 @@ function semLabel(s: string) {
                 <div class="flex flex-wrap gap-2">
                   <template v-for="sem in SEMESTERS" :key="sem">
                     <div
-                      v-if="paidSemesters.some(ps => ps.semester === sem && ps.school_year === year)"
+                      v-if="paidSemesterFor(sem, year)"
                       class="inline-flex items-center gap-1.5 rounded-full bg-green-100 border border-green-300 px-3 py-1 text-xs font-semibold text-green-800"
                     >
                       <CheckCircle2 class="h-3.5 w-3.5 text-green-600" />
                       {{ semLabel(sem) }}
                       <span class="text-green-600 font-normal">
-                        · {{ formatCurrency(paidSemesters.find(ps => ps.semester === sem && ps.school_year === year)!.total_assessment) }}
+                        · {{ formatCurrency(paidSemesterFor(sem, year)!.total_assessment) }}
                       </span>
+                      <!-- Subject/unit count: only shown when the assessment actually
+                           has a subject snapshot. A pre-snapshot or subjects-removed
+                           assessment reports subject_count = 0 — showing "0 Subjects"
+                           reads as broken, so we omit the segment entirely instead. -->
+                      <span
+                        v-if="paidSemesterFor(sem, year)!.subject_count > 0"
+                        class="text-green-600 font-normal border-l border-green-300 pl-1.5 ml-0.5"
+                      >
+                        {{ paidSemesterFor(sem, year)!.subject_count }}
+                        subj{{ paidSemesterFor(sem, year)!.subject_count !== 1 ? 's' : '' }}
+                        · {{ paidSemesterFor(sem, year)!.total_units }}
+                        units
+                      </span>
+                      <!-- Opens in a new tab: the accounting user is mid-form here
+                           (student selected, semester/school-year chosen). A same-tab
+                           navigation would discard that in-progress state just to look
+                           at a past semester's subject list. -->
+                      <a
+                        :href="route('student-fees.show', {
+                          userId: selectedStudent!.id,
+                          expand: paidSemesterFor(sem, year)!.assessment_id,
+                        })"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-green-700 font-semibold underline decoration-green-400 underline-offset-2 hover:text-green-900 ml-0.5"
+                      >
+                        View Assessment →
+                      </a>
                     </div>
                   </template>
                 </div>

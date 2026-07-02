@@ -72,7 +72,11 @@ class StudentFeeController extends Controller
         return StudentAssessment::where('user_id', $userId)
             ->whereIn('status', ['completed', 'active'])
             ->with('paymentTerms')
-            ->select('id', 'semester', 'school_year', 'total_assessment', 'status', 'year_level')
+            // ✅ subject_count: real relationship count, not a client-side
+            //    fee_breakdown reduction — avoids loading every assessmentSubjects
+            //    row just to count them.
+            ->withCount('assessmentSubjects as subject_count')
+            ->select('id', 'semester', 'school_year', 'total_assessment', 'status', 'year_level', 'lec_units', 'nstp_lec_units', 'lab_units')
             ->get()
             ->filter(function ($a) {
                 return $a->status === 'completed'
@@ -89,6 +93,17 @@ class StudentFeeController extends Controller
                 'assessment_id'    => $a->id,
                 'total_assessment' => (float) $a->total_assessment,
                 'year_level'       => $a->year_level,   // ← pass stored year_level for advancement calc
+                'subject_count'    => (int) $a->subject_count,
+                // total_units = lec_units + nstp_lec_units + lab_units, same
+                // composition the Academic History totals footer on
+                // StudentFees/Show.vue uses (entry.lec_units + entry.nstp_lec_units
+                // for the Lec column, entry.lab_units for the Lab column).
+                // Collapsed into one number here because this card is a compact
+                // summary chip, not a breakdown table.
+                'total_units'      => round(
+                    (float) $a->lec_units + (float) ($a->nstp_lec_units ?? 0) + (float) $a->lab_units,
+                    1
+                ),
             ])
             ->all();
     }
