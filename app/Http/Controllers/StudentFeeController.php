@@ -370,7 +370,23 @@ class StudentFeeController extends Controller
                     'year_level'          => $yearLevelForAssessment,
                     'total_assessment'    => $fees['total'],
                     'status'              => 'active',
+                    // Immutable origin marker — see migration
+                    // 2026_07_02_000001_add_curriculum_lineage_to_student_assessments.
+                    // Set once here, never touched by update().
+                    'generated_from'      => ! empty($validated['manual_subject_ids'] ?? []) ? 'manual' : 'curriculum',
+                    'curriculum_synced_at' => ! empty($validated['manual_subject_ids'] ?? []) ? null : now(),
                 ]);
+
+                AssessmentService::logEvent(
+                    assessmentId: $assessment->id,
+                    eventType:    'created',
+                    payload:      [
+                        'generated_from' => ! empty($validated['manual_subject_ids'] ?? []) ? 'manual' : 'curriculum',
+                        'semester'       => $validated['semester'],
+                        'school_year'    => $validated['school_year'],
+                        'total_assessment' => $fees['total'],
+                    ],
+                );
 
                 // Pass $fees['misc_fee'] and the tuition+lab base explicitly so
                 // buildPaymentTerms() never falls through to its default calculation.
@@ -563,6 +579,30 @@ class StudentFeeController extends Controller
                 // ── Per-subject billing snapshot ─────────────────────────────
                 // Sourced from assessment_subjects (written at assessment creation).
                 // Empty array for pre-snapshot (legacy) assessments.
+                // ── Curriculum lineage — see migration 2026_07_02_000001 ────
+                'generated_from'       => $a->generated_from ?? 'curriculum',
+                'curriculum_synced_at' => $a->curriculum_synced_at,
+
+                // ── Audit trail — see migration 2026_07_02_000002 ───────────
+                // Newest first (AssessmentEvent scope default). Capped at 50
+                // so a long-lived assessment's Show page payload doesn't grow
+                // unbounded; older history is still in the DB if ever needed.
+                'events' => \App\Models\AssessmentEvent::where('student_assessment_id', $a->id)
+                    ->orderByDesc('created_at')
+                    ->limit(50)
+                    ->with('changedByUser:id,first_name,last_name')
+                    ->get()
+                    ->map(fn ($e) => [
+                        'id'         => $e->id,
+                        'event_type' => $e->event_type,
+                        'payload'    => $e->payload,
+                        'reason'     => $e->reason,
+                        'changed_by' => $e->changedByUser
+                            ? trim($e->changedByUser->first_name . ' ' . $e->changedByUser->last_name)
+                            : 'System',
+                        'created_at' => $e->created_at,
+                    ]),
+
                 'enrolled_subjects' => AssessmentSubject::where('student_assessment_id', $a->id)
                     ->orderBy('sort_order')
                     ->get()
@@ -966,6 +1006,17 @@ class StudentFeeController extends Controller
                 rates:              $rates,
             );
 
+            // ─── Audit: capture non-subject field changes before overwrite ──
+            // getDirty() after update() would only show what Eloquent decided
+            // changed; comparing against the original attributes here catches
+            // every field this endpoint can touch, including ones that end up
+            // unchanged (those are simply skipped below).
+            $before = $assessment->only([
+                'semester', 'school_year', 'lec_units', 'nstp_lec_units',
+                'lab_units', 'discount_percentage', 'discount_name', 'total_assessment',
+            ]);
+            // ──────────────────────────────────────────────────────────────
+
             $assessment->update([
                 'semester'            => $validated['semester'],
                 'school_year'         => $validated['school_year'],
@@ -994,6 +1045,21 @@ class StudentFeeController extends Controller
             // Delete and re-insert. Safe here because update() is only allowed
             // when zero paid terms exist (guard above). Rates are re-locked at
             // the current fee_settings values for this update operation.
+            //
+            // AUDIT: old rows are read BEFORE the delete so diffSubjectSnapshots()
+            // has something to compare the rebuilt snapshot against. This does
+            // not make the rebuild itself non-destructive (assessment_subjects
+            // is still delete-and-reinsert, by design — it's a locked billing
+            // snapshot, not a versioned table) — it only means the *fact* of
+            // what changed is now recorded in assessment_events before the old
+            // rows are gone.
+            $oldSubjectRows = \Illuminate\Support\Facades\DB::table('assessment_subjects')
+                ->where('student_assessment_id', $assessment->id)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn ($row) => (array) $row)
+                ->all();
+
             \Illuminate\Support\Facades\DB::table('assessment_subjects')
                 ->where('student_assessment_id', $assessment->id)
                 ->delete();
@@ -1002,8 +1068,9 @@ class StudentFeeController extends Controller
             $semesterNorm     = AssessmentService::normalizeSemester($validated['semester']);
             $yearLevelForSnap = $assessment->year_level ?? $student->year_level;
             $manualIds        = $validated['manual_subject_ids'] ?? [];
+            $isManualEdit     = ! empty($manualIds);
 
-            if (! empty($manualIds)) {
+            if ($isManualEdit) {
                 // Use the exact subject list submitted by Edit.vue
                 $snapshotRows = AssessmentService::buildSubjectSnapshotFromIds(
                     $manualIds,
@@ -1025,7 +1092,53 @@ class StudentFeeController extends Controller
             if (! empty($snapshotRows)) {
                 \Illuminate\Support\Facades\DB::table('assessment_subjects')->insert($snapshotRows);
             }
+
+            // AUDIT: log every subject-level change detected by the diff.
+            // Note: generated_from is NEVER updated here — it stays whatever
+            // store() originally set. A manual edit on a curriculum-origin
+            // assessment does not retroactively become "manual" — it becomes
+            // a curriculum-origin assessment that later had a manual
+            // deviation, which is exactly what these events record.
+            foreach (AssessmentService::diffSubjectSnapshots($oldSubjectRows, $snapshotRows) as $change) {
+                AssessmentService::logEvent(
+                    assessmentId: $assessment->id,
+                    eventType:    $change['event_type'],
+                    payload:      $change['payload'],
+                );
+            }
+
+            // curriculum_synced_at only advances when this update rebuilt from
+            // LIVE curriculum (not a manual subject list) — it means "the
+            // subject snapshot is confirmed current as of this moment."
+            if (! $isManualEdit) {
+                $assessment->update(['curriculum_synced_at' => now()]);
+            }
             // ──────────────────────────────────────────────────────────────
+
+            // AUDIT: log non-subject field changes captured in $before.
+            $afterFields = [
+                'semester'            => $validated['semester'],
+                'school_year'         => $validated['school_year'],
+                'lec_units'           => $validated['lec_units'],
+                'nstp_lec_units'      => $validated['nstp_lec_units'],
+                'lab_units'           => $validated['lab_units'],
+                'discount_percentage' => $validated['discount_percentage'],
+                'discount_name'       => $validated['discount_name'],
+                'total_assessment'    => $fees['total'],
+            ];
+            $fieldChanges = [];
+            foreach ($afterFields as $field => $newVal) {
+                if ((string) ($before[$field] ?? null) !== (string) $newVal) {
+                    $fieldChanges[$field] = ['old' => $before[$field] ?? null, 'new' => $newVal];
+                }
+            }
+            if (! empty($fieldChanges)) {
+                AssessmentService::logEvent(
+                    assessmentId: $assessment->id,
+                    eventType:    'fields_updated',
+                    payload:      $fieldChanges,
+                );
+            }
 
             Transaction::where('user_id', $userId)
                 ->where('kind', 'charge')
@@ -1058,6 +1171,186 @@ class StudentFeeController extends Controller
         return redirect()
             ->route('student-fees.show', $userId)
             ->with('success', 'Assessment updated successfully.');
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  CURRICULUM DRIFT — compare stored snapshot vs. live curriculum
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Read-only comparison: does this assessment's stored assessment_subjects
+     * snapshot match what the live Subject table would produce today?
+     *
+     * Returns null-drift (has_drift: false, is_manual: true) for
+     * generated_from = 'manual' assessments — see
+     * AssessmentService::detectCurriculumDrift() for why.
+     *
+     * GET, not POST — this endpoint never writes anything. Safe to call
+     * regardless of paid-terms status; the UI uses it purely to decide
+     * whether to show the "curriculum has changed" banner and, if so,
+     * whether the Apply button should be enabled (only when unpaid).
+     */
+    public function curriculumDrift(int $userId): \Illuminate\Http\JsonResponse
+    {
+        $this->authorize('update', StudentAssessment::class);
+
+        $assessment = StudentAssessment::where('user_id', $userId)
+            ->where('status', 'active')
+            ->firstOrFail();
+
+        $drift = AssessmentService::detectCurriculumDrift($assessment);
+
+        if ($drift === null) {
+            return response()->json([
+                'is_manual'  => true,
+                'has_drift'  => false,
+                'changes'    => [],
+                'can_apply'  => false,
+            ]);
+        }
+
+        $paidTerms = $assessment->paymentTerms()
+            ->whereNotIn('status', \App\Enums\PaymentStatus::unpaidValues())
+            ->count();
+
+        return response()->json([
+            'is_manual'            => false,
+            'has_drift'            => $drift['has_drift'],
+            'changes'              => $drift['changes'],
+            'can_apply'            => $drift['has_drift'] && $paidTerms === 0,
+            'curriculum_synced_at' => $assessment->curriculum_synced_at,
+        ]);
+    }
+
+    /**
+     * Apply the live curriculum to this assessment: rebuild assessment_subjects
+     * from the current Subject table AND recompute lec_units / nstp_lec_units /
+     * lab_units / fees / total_assessment / payment terms to match — a partial
+     * sync (subjects refreshed but totals left stale, or vice versa) would
+     * leave the assessment internally inconsistent, which is worse than the
+     * drift it's meant to fix.
+     *
+     * Guarded identically to update(): blocked the moment any payment term is
+     * paid/partial. This reuses the exact same guard rather than introducing
+     * a separate field-level permission model — see the answered "partially
+     * paid assessments" question: no field-level edit permissions, full stop.
+     *
+     * Refuses (422) for generated_from = 'manual' assessments — there is no
+     * curriculum to sync FROM for those, by design.
+     */
+    public function syncCurriculum(int $userId)
+    {
+        $this->authorize('update', StudentAssessment::class);
+
+        $assessment = StudentAssessment::where('user_id', $userId)
+            ->where('status', 'active')
+            ->firstOrFail();
+
+        if ($assessment->generated_from === 'manual') {
+            return back()->withErrors([
+                'curriculum' => 'This assessment was built from a manually selected subject list — there is no curriculum to sync from.',
+            ]);
+        }
+
+        $paidTerms = $assessment->paymentTerms()
+            ->whereNotIn('status', \App\Enums\PaymentStatus::unpaidValues())
+            ->count();
+
+        if ($paidTerms > 0) {
+            return back()->withErrors([
+                'curriculum' => 'Cannot sync curriculum — payments have already been recorded on this assessment.',
+            ]);
+        }
+
+        $student = User::findOrFail($userId);
+
+        DB::transaction(function () use ($assessment, $student) {
+            $rates = AssessmentService::loadRates();
+
+            $curriculum = AssessmentService::getCurriculumUnits(
+                $assessment->course ?? $student->course,
+                $assessment->year_level ?? $student->year_level,
+                $assessment->semester
+            );
+
+            $fees = AssessmentService::compute(
+                lecUnits:           $curriculum['billable_lec_units'],
+                labSubjects:        $curriculum['lab_subject_count'],
+                nstpLecUnits:       $curriculum['nstp_lec_units'],
+                discountPercentage: (float) $assessment->discount_percentage,
+                rates:              $rates,
+            );
+
+            $oldSubjectRows = DB::table('assessment_subjects')
+                ->where('student_assessment_id', $assessment->id)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn ($row) => (array) $row)
+                ->all();
+
+            $before = $assessment->only(['lec_units', 'nstp_lec_units', 'lab_units', 'total_assessment']);
+
+            $assessment->update([
+                'lec_units'        => $curriculum['billable_lec_units'],
+                'nstp_lec_units'   => $curriculum['nstp_lec_units'],
+                'lab_units'        => $curriculum['lab_subject_count'],
+                'is_taking_nstp'   => $curriculum['nstp_lec_units'] > 0,
+                'tuition_fee'      => $fees['tuition_fee'],
+                'nstp_tuition'     => $fees['nstp_tuition'],
+                'lab_fee'          => $fees['lab_fee'],
+                'misc_fee'         => $fees['misc_fee'],
+                'total_assessment' => $fees['total'],
+                'curriculum_synced_at' => now(),
+            ]);
+
+            // Rebuild payment terms — identical approach to update().
+            $assessment->paymentTerms()->delete();
+            $tuitionAndLabBase = $fees['total'] - $fees['misc_fee'];
+            foreach (AssessmentService::buildPaymentTerms($fees['total'], $rates, $fees['misc_fee'], $tuitionAndLabBase) as $term) {
+                $assessment->paymentTerms()->create($term);
+            }
+
+            DB::table('assessment_subjects')
+                ->where('student_assessment_id', $assessment->id)
+                ->delete();
+
+            $newSnapshotRows = AssessmentService::buildSubjectSnapshot(
+                $assessment->course ?? $student->course,
+                $assessment->year_level ?? $student->year_level,
+                $assessment->semester,
+                $rates,
+                $assessment->id,
+            );
+
+            if (! empty($newSnapshotRows)) {
+                DB::table('assessment_subjects')->insert($newSnapshotRows);
+            }
+
+            foreach (AssessmentService::diffSubjectSnapshots($oldSubjectRows, $newSnapshotRows) as $change) {
+                AssessmentService::logEvent(
+                    assessmentId: $assessment->id,
+                    eventType:    $change['event_type'],
+                    payload:      $change['payload'],
+                );
+            }
+
+            AssessmentService::logEvent(
+                assessmentId: $assessment->id,
+                eventType:    'curriculum_synced',
+                payload:      [
+                    'lec_units_before' => $before['lec_units'],
+                    'lec_units_after'  => $curriculum['billable_lec_units'],
+                    'total_before'     => $before['total_assessment'],
+                    'total_after'      => $fees['total'],
+                ],
+            );
+
+            AccountService::recalculate($student);
+        });
+
+        return redirect()
+            ->route('student-fees.show', $userId)
+            ->with('success', 'Assessment synced with current curriculum.');
     }
 
     // ─────────────────────────────────────────────────────────────

@@ -116,6 +116,8 @@ Route::middleware(['auth', 'verified', 'role:accounting'])
         Route::post('/{user}/drop', [StudentFeeController::class, 'drop'])->whereNumber('user')->name('drop');
         Route::get('/{userId}/edit', [StudentFeeController::class, 'edit'])->whereNumber('userId')->name('edit');
         Route::put('/{userId}', [StudentFeeController::class, 'update'])->whereNumber('userId')->name('update');
+        Route::get('/{userId}/curriculum-drift', [StudentFeeController::class, 'curriculumDrift'])->whereNumber('userId')->name('curriculum-drift');
+        Route::post('/{userId}/curriculum-sync', [StudentFeeController::class, 'syncCurriculum'])->whereNumber('userId')->name('curriculum-sync');
         Route::get('/{student}/edit-student', [StudentFeeController::class, 'editStudent'])->name('edit-student');
         Route::put('/{student}/update-student', [StudentFeeController::class, 'updateStudent'])->name('update-student');
     });

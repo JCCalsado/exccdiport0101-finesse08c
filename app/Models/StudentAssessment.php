@@ -38,6 +38,13 @@ class StudentAssessment extends Model
         'total_assessment',
         'status',
         'nstp_lec_units',
+        // ── Curriculum lineage (migration 2026_07_02_000001) ──────────────────
+        // 'generated_from' is intentionally NOT set via mass-assignment on
+        // update() — it is an immutable origin marker written once at create
+        // time. It IS listed here because store() writes it through
+        // StudentAssessment::create(). Any update() call must never pass it.
+        'generated_from',
+        'curriculum_synced_at',
     ];
 
     public const MINIMUM_UNITS = 1.5;
@@ -56,6 +63,8 @@ class StudentAssessment extends Model
         'lab_fee'              => 'decimal:2',
         'misc_fee'             => 'decimal:2',
         'total_assessment'     => 'decimal:2',
+        'generated_from'       => 'string',
+        'curriculum_synced_at' => 'datetime',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
@@ -79,6 +88,17 @@ class StudentAssessment extends Model
     {
         return $this->hasMany(AssessmentSubject::class, 'student_assessment_id')
             ->orderBy('sort_order');
+    }
+
+    /**
+     * Audit trail — chronological log of everything that happened to this
+     * assessment after creation. See AssessmentEvent and
+     * AssessmentService::logEvent().
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(AssessmentEvent::class, 'student_assessment_id')
+            ->orderByDesc('created_at');
     }
 
     // ─── Computed Attributes ──────────────────────────────────────────────────

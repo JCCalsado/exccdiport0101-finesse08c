@@ -393,6 +393,193 @@ class AssessmentService
         return $rows;
     }
 
+    // ─── Audit Trail (assessment_events) ──────────────────────────────────────
+
+    /**
+     * Write one assessment_events row.
+     *
+     * Single call site for every event write so payload shape stays
+     * consistent — never insert into assessment_events directly.
+     *
+     * @param  int         $assessmentId
+     * @param  string      $eventType    See migration 2026_07_02_000002 for the
+     *                                    documented set of event_type values.
+     * @param  array|null  $payload      JSON-encodable. Shape depends on $eventType.
+     * @param  string|null $reason       Optional free-text reason (e.g. from a
+     *                                    future "reason for edit" field).
+     * @param  int|null    $changedBy    auth()->id() at the call site. Nullable
+     *                                    so this can be called from console/seed
+     *                                    contexts without a request-bound user.
+     */
+    public static function logEvent(
+        int     $assessmentId,
+        string  $eventType,
+        ?array  $payload = null,
+        ?string $reason = null,
+        ?int    $changedBy = null
+    ): void {
+        \App\Models\AssessmentEvent::create([
+            'student_assessment_id' => $assessmentId,
+            'event_type'            => $eventType,
+            'changed_by'            => $changedBy ?? auth()->id(),
+            'payload'               => $payload,
+            'reason'                => $reason,
+        ]);
+    }
+
+    /**
+     * Diff two assessment_subjects row-sets and return the changes as
+     * assessment_events-ready descriptors. Does NOT write anything — callers
+     * are responsible for looping the result through logEvent().
+     *
+     * Comparison key is subject_id. A row with subject_id = null (subject was
+     * hard-deleted from the `subjects` table after the snapshot was taken)
+     * is matched by [code, name] instead, since that's the only remaining
+     * stable identity for it.
+     *
+     * @param  array $oldRows  Rows currently in assessment_subjects (as arrays
+     *                          or stdClass from DB::table()->get(), pre-delete).
+     * @param  array $newRows  Rows about to be inserted (output of
+     *                          buildSubjectSnapshot() / buildSubjectSnapshotFromIds()).
+     * @return array<int, array{event_type: string, payload: array}>
+     */
+    public static function diffSubjectSnapshots(array $oldRows, array $newRows): array
+    {
+        $keyOf = function ($row): string {
+            $row = (array) $row;
+            return $row['subject_id'] !== null
+                ? 'id:' . $row['subject_id']
+                : 'code:' . ($row['code'] ?? '') . '|' . ($row['name'] ?? '');
+        };
+
+        $oldByKey = [];
+        foreach ($oldRows as $row) {
+            $oldByKey[$keyOf($row)] = (array) $row;
+        }
+
+        $newByKey = [];
+        foreach ($newRows as $row) {
+            $newByKey[$keyOf($row)] = (array) $row;
+        }
+
+        $events = [];
+
+        // Removed: present in old, absent in new.
+        foreach ($oldByKey as $key => $old) {
+            if (! isset($newByKey[$key])) {
+                $events[] = [
+                    'event_type' => 'subject_removed',
+                    'payload'    => [
+                        'subject_id' => $old['subject_id'],
+                        'code'       => $old['code'],
+                        'name'       => $old['name'],
+                    ],
+                ];
+            }
+        }
+
+        // Added: present in new, absent in old.
+        foreach ($newByKey as $key => $new) {
+            if (! isset($oldByKey[$key])) {
+                $events[] = [
+                    'event_type' => 'subject_added',
+                    'payload'    => [
+                        'subject_id' => $new['subject_id'],
+                        'code'       => $new['code'],
+                        'name'       => $new['name'],
+                    ],
+                ];
+            }
+        }
+
+        // Changed: present in both, but a snapshot field differs.
+        // Only fields that reflect a genuine curriculum/billing change — not
+        // sort_order, timestamps, or id.
+        $comparableFields = ['lec_units', 'lab_units', 'is_nstp', 'tuition_fee', 'lab_fee', 'total_fee'];
+
+        foreach ($oldByKey as $key => $old) {
+            if (! isset($newByKey[$key])) {
+                continue;
+            }
+            $new = $newByKey[$key];
+
+            foreach ($comparableFields as $field) {
+                $oldVal = $old[$field] ?? null;
+                $newVal = $new[$field] ?? null;
+
+                // Loose comparison tolerates string-vs-numeric casting
+                // differences between a DB::table() row and a freshly built
+                // array — a real change is what matters, not the PHP type.
+                if ((string) $oldVal !== (string) $newVal) {
+                    $events[] = [
+                        'event_type' => 'subject_changed',
+                        'payload'    => [
+                            'subject_id' => $new['subject_id'],
+                            'code'       => $new['code'],
+                            'name'       => $new['name'],
+                            'field'      => $field,
+                            'old'        => $oldVal,
+                            'new'        => $newVal,
+                        ],
+                    ];
+                }
+            }
+        }
+
+        return $events;
+    }
+
+    /**
+     * Compare an assessment's stored assessment_subjects snapshot against
+     * what buildSubjectSnapshot() would produce from the LIVE Subject table
+     * right now, for the assessment's own (course, year_level, semester).
+     *
+     * Read-only — never persists anything. Used by the curriculum-drift
+     * endpoint to render the "curriculum has changed" comparison UI.
+     *
+     * Returns null (no drift concept applies) when the assessment's
+     * generated_from = 'manual' — a manually-assembled subject list was never
+     * tied to a curriculum in the first place, so there is nothing to detect
+     * drift against. Callers must check for null before rendering the banner.
+     *
+     * @param  \App\Models\StudentAssessment $assessment
+     * @return array{has_drift: bool, changes: array}|null
+     */
+    public static function detectCurriculumDrift(\App\Models\StudentAssessment $assessment): ?array
+    {
+        if ($assessment->generated_from === 'manual') {
+            return null;
+        }
+
+        $currentRows = \Illuminate\Support\Facades\DB::table('assessment_subjects')
+            ->where('student_assessment_id', $assessment->id)
+            ->orderBy('sort_order')
+            ->get()
+            ->map(fn ($row) => (array) $row)
+            ->all();
+
+        $student    = \App\Models\User::find($assessment->user_id);
+        $course     = $assessment->course ?? $student?->course;
+        $yearLevel  = $assessment->year_level ?? $student?->year_level;
+        $semesterDb = self::normalizeSemester($assessment->semester);
+
+        if (! $course || ! $yearLevel) {
+            // Can't determine what curriculum to compare against — treat as
+            // no drift rather than guessing.
+            return ['has_drift' => false, 'changes' => []];
+        }
+
+        $rates    = self::loadRates();
+        $liveRows = self::buildSubjectSnapshot($course, $yearLevel, $assessment->semester, $rates, $assessment->id);
+
+        $changes = self::diffSubjectSnapshots($currentRows, $liveRows);
+
+        return [
+            'has_drift' => ! empty($changes),
+            'changes'   => $changes,
+        ];
+    }
+
     // ─── Fee Computation ──────────────────────────────────────────────────────
 
     /**
