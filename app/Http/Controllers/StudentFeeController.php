@@ -427,6 +427,21 @@ class StudentFeeController extends Controller
                 }
                 // ─────────────────────────────────────────────────────────────────
 
+                $finalSubjectIds = array_map(fn ($row) => $row['subject_id'], $snapshotRows);
+                $curriculumDiff  = AssessmentService::diffAgainstCurriculum(
+                    $student->course,
+                    $yearLevelForAssessment,
+                    AssessmentService::normalizeSemester($validated['semester']),
+                    $finalSubjectIds,
+                );
+                if (! empty($curriculumDiff['missing']) || ! empty($curriculumDiff['extra'])) {
+                    AssessmentService::logEvent(
+                        assessmentId: $assessment->id,
+                        eventType:    'curriculum_diff_at_creation',
+                        payload:      $curriculumDiff,
+                    );
+                }
+
                 // FIX: Guard against duplicate charge transactions.
                 $chargeYear = (int) explode('-', $validated['school_year'])[0];
                 $chargeMeta = json_encode([
@@ -1107,6 +1122,21 @@ class StudentFeeController extends Controller
                 );
             }
 
+            $finalSubjectIdsForDiff = array_map(fn ($row) => $row['subject_id'], $snapshotRows);
+            $curriculumDiff = AssessmentService::diffAgainstCurriculum(
+                $student->course,
+                $yearLevelForSnap,
+                $semesterNorm,
+                $finalSubjectIdsForDiff,
+            );
+            if (! empty($curriculumDiff['missing']) || ! empty($curriculumDiff['extra'])) {
+                AssessmentService::logEvent(
+                    assessmentId: $assessment->id,
+                    eventType:    'curriculum_diff_at_update',
+                    payload:      $curriculumDiff,
+                );
+            }
+
             // curriculum_synced_at only advances when this update rebuilt from
             // LIVE curriculum (not a manual subject list) — it means "the
             // subject snapshot is confirmed current as of this moment."
@@ -1438,6 +1468,48 @@ class StudentFeeController extends Controller
                 'is_billable' => ! (bool) $s->is_nstp,
             ])->values(),
         ]);
+    }
+
+    /**
+     * Advisory-only sequence check for Create.vue.
+     */
+    public function checkSubjectSequence(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $this->authorize('viewAny', StudentAssessment::class);
+
+        $validated = $request->validate([
+            'student_id'           => ['required', 'exists:users,id'],
+            'year_level'           => ['required', 'string', 'max:50'],
+            'semester'             => ['required', 'string'],
+            'subject_ids'          => ['nullable', 'array'],
+            'subject_ids.*'        => ['integer', 'exists:subjects,id'],
+            'exclude_assessment_id' => ['nullable', 'integer', 'exists:student_assessments,id'],
+        ]);
+
+        $subjectIds = $validated['subject_ids'] ?? [];
+        if (empty($subjectIds)) {
+            return response()->json(['flagged' => []]);
+        }
+
+        $selectedSubjects = Subject::whereIn('id', $subjectIds)
+            ->get(['id', 'code', 'name', 'year_level', 'semester'])
+            ->map(fn ($s) => [
+                'id' => $s->id,
+                'code' => $s->code,
+                'name' => $s->name,
+                'year_level' => $s->year_level,
+                'semester' => $s->semester,
+            ])->all();
+
+        $flagged = AssessmentService::detectOutOfSequenceSubjects(
+            userId: (int) $validated['student_id'],
+            assessmentYearLevel: $validated['year_level'],
+            assessmentSemesterDb: AssessmentService::normalizeSemester($validated['semester']),
+            selectedSubjects: $selectedSubjects,
+            excludeAssessmentId: $validated['exclude_assessment_id'] ?? null,
+        );
+
+        return response()->json(['flagged' => $flagged]);
     }
 
     // ─────────────────────────────────────────────────────────────

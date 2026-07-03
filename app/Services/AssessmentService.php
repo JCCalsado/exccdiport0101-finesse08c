@@ -745,6 +745,144 @@ class AssessmentService
         return $terms;
     }
 
+    // ─── Nonlinear Assessment Support ───────────────────────────────────────
+    //
+    // Two advisory checks for nonlinear assessments:
+    // 1) diffAgainstCurriculum() compares the final billed subject list against
+    //    the live curriculum for the assessment term. This is audit-only and
+    //    does not block submission.
+    // 2) detectOutOfSequenceSubjects() flags subjects that appear earlier in
+    //    the curriculum than the assessment term when the student has no prior
+    //    billing record for them. This is surfaced as a warning in the UI.
+
+    /**
+     * Diff the live curriculum for this term against the final selected subject IDs.
+     */
+    public static function diffAgainstCurriculum(
+        string $course,
+        string $yearLevel,
+        string $semesterDb,
+        array  $selectedSubjectIds,
+    ): array {
+        $curriculumSubjects = Subject::where('course', $course)
+            ->where('year_level', $yearLevel)
+            ->where('semester', $semesterDb)
+            ->where('is_active', true)
+            ->get(['id', 'code', 'name']);
+
+        $curriculumIds = $curriculumSubjects->pluck('id')->all();
+        $selectedIds   = array_values(array_unique(array_map('intval', $selectedSubjectIds)));
+
+        $missingIds = array_diff($curriculumIds, $selectedIds);
+        $extraIds   = array_diff($selectedIds, $curriculumIds);
+
+        $missing = $curriculumSubjects
+            ->whereIn('id', $missingIds)
+            ->map(fn ($s) => ['id' => $s->id, 'code' => $s->code, 'name' => $s->name])
+            ->values()
+            ->all();
+
+        $extra = empty($extraIds)
+            ? []
+            : Subject::whereIn('id', $extraIds)
+                ->get(['id', 'code', 'name'])
+                ->map(fn ($s) => ['id' => $s->id, 'code' => $s->code, 'name' => $s->name])
+                ->values()
+                ->all();
+
+        return ['missing' => $missing, 'extra' => $extra];
+    }
+
+    /**
+     * Whether the student has any prior billing record for a subject.
+     */
+    public static function hasPriorRecordOfSubject(
+        int  $userId,
+        int  $subjectId,
+        ?int $excludeAssessmentId = null,
+    ): bool {
+        return \Illuminate\Support\Facades\DB::table('assessment_subjects')
+            ->join('student_assessments', 'student_assessments.id', '=', 'assessment_subjects.student_assessment_id')
+            ->where('student_assessments.user_id', $userId)
+            ->where('assessment_subjects.subject_id', $subjectId)
+            ->when($excludeAssessmentId, fn ($q) => $q->where('student_assessments.id', '!=', $excludeAssessmentId))
+            ->exists();
+    }
+
+    /**
+     * Ordinal position of a term so earlier terms can be compared.
+     */
+    public static function termOrdinal(string $yearLevel, string $semesterDb): int
+    {
+        $yearIndex = match ($yearLevel) {
+            '1st Year' => 0,
+            '2nd Year' => 1,
+            '3rd Year' => 2,
+            '4th Year' => 3,
+            '5th Year' => 4,
+            default    => null,
+        };
+
+        if ($yearIndex === null) {
+            return PHP_INT_MAX;
+        }
+
+        $semIndex = match ($semesterDb) {
+            '1st Sem' => 0,
+            '2nd Sem' => 1,
+            'Summer'  => 2,
+            default   => 1,
+        };
+
+        return ($yearIndex * 3) + $semIndex;
+    }
+
+    /**
+     * Flag selected subjects whose natural term is earlier than the assessment term.
+     */
+    public static function detectOutOfSequenceSubjects(
+        int    $userId,
+        string $assessmentYearLevel,
+        string $assessmentSemesterDb,
+        array  $selectedSubjects,
+        ?int   $excludeAssessmentId = null,
+    ): array {
+        $assessmentOrdinal = self::termOrdinal($assessmentYearLevel, $assessmentSemesterDb);
+        $flagged = [];
+
+        foreach ($selectedSubjects as $subject) {
+            $subjectYearLevel = $subject['year_level'] ?? null;
+            $subjectSemester  = $subject['semester'] ?? null;
+
+            if (! $subjectYearLevel || ! $subjectSemester) {
+                continue;
+            }
+
+            $subjectOrdinal = self::termOrdinal($subjectYearLevel, $subjectSemester);
+            if ($subjectOrdinal >= $assessmentOrdinal) {
+                continue;
+            }
+
+            $subjectId = (int) ($subject['id'] ?? 0);
+            if (! $subjectId) {
+                continue;
+            }
+
+            if (self::hasPriorRecordOfSubject($userId, $subjectId, $excludeAssessmentId)) {
+                continue;
+            }
+
+            $flagged[] = [
+                'id'            => $subjectId,
+                'code'          => $subject['code'] ?? '',
+                'name'          => $subject['name'] ?? '',
+                'expected_term' => "{$subjectYearLevel} — {$subjectSemester}",
+            ];
+        }
+
+        return $flagged;
+    }
+
     // ─── Utility Helpers ──────────────────────────────────────────────────────
 
     /**

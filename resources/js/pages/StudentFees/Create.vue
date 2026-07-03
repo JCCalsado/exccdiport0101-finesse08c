@@ -470,6 +470,55 @@ watch(selectedSubjects, (subjects) => {
   form.manual_subject_ids = subjects.map(s => s.id)
 }, { deep: true })
 
+// Advisory-only out-of-sequence checks for nonlinear assessments.
+interface SequenceWarning {
+  id: number
+  code: string
+  name: string
+  expected_term: string
+}
+
+const sequenceWarnings = ref<SequenceWarning[]>([])
+const sequenceCheckLoading = ref(false)
+let sequenceCheckTimeout: ReturnType<typeof setTimeout>
+
+async function checkSubjectSequence() {
+  const student = selectedStudent.value
+  if (!student || !form.semester || selectedSubjects.value.length === 0) {
+    sequenceWarnings.value = []
+    return
+  }
+
+  sequenceCheckLoading.value = true
+
+  try {
+    const url = route('student-fees.subjects.sequence-check')
+      + '?student_id=' + student.id
+      + '&year_level=' + encodeURIComponent(computedYearLevel.value || student.year_level)
+      + '&semester=' + encodeURIComponent(form.semester)
+      + selectedSubjects.value.map(s => '&subject_ids[]=' + s.id).join('')
+
+    const res = await fetch(url)
+    const data = await res.json()
+    sequenceWarnings.value = data.flagged ?? []
+  } catch {
+    sequenceWarnings.value = []
+  } finally {
+    sequenceCheckLoading.value = false
+  }
+}
+
+watch([selectedSubjects, computedYearLevel, () => form.semester], () => {
+  clearTimeout(sequenceCheckTimeout)
+  sequenceCheckTimeout = setTimeout(checkSubjectSequence, 400)
+}, { deep: true })
+
+const sequenceWarningMap = computed(() => {
+  const map = new Map<number, SequenceWarning>()
+  sequenceWarnings.value.forEach(w => map.set(w.id, w))
+  return map
+})
+
 // ─── Live Fee Computation ─────────────────────────────────────────────────────
 
 const rate = computed(() => props.feeRates.tuition_per_unit)
@@ -902,6 +951,18 @@ function semLabel(s: string) {
                 {{ curriculumMessage }}
               </div>
 
+              <div v-if="sequenceWarnings.length > 0"
+                   class="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <AlertTriangle class="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                <div>
+                  <p class="font-semibold">{{ sequenceWarnings.length }} subject{{ sequenceWarnings.length !== 1 ? 's' : '' }} may be out of sequence</p>
+                  <p class="mt-0.5 text-amber-800">
+                    No prior billing record was found for this student on {{ sequenceWarnings.map(w => w.code).join(', ') }}.
+                    Verify with the Registrar before proceeding, or ignore if this is intentional.
+                  </p>
+                </div>
+              </div>
+
               <!-- Subject table -->
               <div v-if="selectedSubjects.length > 0 && !curriculumLoading"
                    class="rounded-xl border border-gray-200 bg-white overflow-hidden">
@@ -964,6 +1025,11 @@ function semLabel(s: string) {
                         <p v-if="subj.course !== selectedStudent?.course"
                            class="text-xs text-indigo-600 font-medium">
                           {{ subj.course }} · {{ subj.year_level }}
+                        </p>
+                        <p v-if="sequenceWarningMap.has(subj.id)"
+                           class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                          <AlertTriangle class="h-3 w-3" />
+                          Normally {{ sequenceWarningMap.get(subj.id)?.expected_term }}
                         </p>
                       </td>
                       <td class="px-4 py-2.5 text-center font-mono">
