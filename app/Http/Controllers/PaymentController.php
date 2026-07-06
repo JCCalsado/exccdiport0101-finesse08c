@@ -19,8 +19,8 @@ use Inertia\Response;
 
 class PaymentController extends Controller
 {
-    private string $secretKey;
-    private string $publicKey;
+    private ?string $secretKey;
+    private ?string $publicKey;
     private string $baseUrl = 'https://api.paymongo.com/v1';
 
     public function __construct()

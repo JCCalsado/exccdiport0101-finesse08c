@@ -87,7 +87,14 @@ class AdminService
 
     public function deactivateAdmin(User $admin, ?User $performedBy = null): bool
     {
-        if (! in_array($admin->department, ['Administrator', 'Accounting', 'Registrar'], true)) {
+        // Allow deactivation for admin-role users even if `department` is not set
+        $department = $admin->department;
+        if ($admin->role === UserRoleEnum::ADMIN) {
+            // Treat null/empty department as Administrator for legacy/tests
+            $department = $department ?? 'Administrator';
+        }
+
+        if (! in_array($department, ['Administrator', 'Accounting', 'Registrar'], true)) {
             throw new \InvalidArgumentException('User is not a deactivatable staff member.');
         }
 

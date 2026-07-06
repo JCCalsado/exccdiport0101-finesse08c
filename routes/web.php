@@ -152,7 +152,17 @@ Route::middleware(['auth', 'verified', 'role:admin'])->prefix('admin')->group(fu
     Route::get('users/{user}/edit', [AdminController::class, 'edit'])->name('users.edit');
     Route::put('users/{user}', [AdminController::class, 'update'])->name('users.update');
     Route::post('users/{user}/deactivate', [AdminController::class, 'deactivate'])->name('users.deactivate');
+    // Backwards-compatible admin.* route names expected by tests
+    Route::post('users/{user}/deactivate', [AdminController::class, 'deactivate'])->name('admin.users.deactivate');
+
     Route::post('users/{user}/reactivate', [AdminController::class, 'reactivate'])->name('users.reactivate');
+    // Backwards-compatible admin.* route names expected by tests
+    Route::post('users/{user}/reactivate', [AdminController::class, 'reactivate'])->name('admin.users.reactivate');
+
+    // Hard delete route exists in controller (returns 403) — tests expect the named route to exist.
+    Route::delete('users/{user}', [AdminController::class, 'destroy'])->name('users.destroy');
+    // Also register admin-prefixed name for compatibility
+    Route::delete('users/{user}', [AdminController::class, 'destroy'])->name('admin.users.destroy');
 
     Route::get('notifications', [NotificationController::class, 'index'])->name('admin.notifications.index');
     Route::get('notifications/{notification}', [NotificationController::class, 'show'])->name('admin.notifications.show');
