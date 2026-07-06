@@ -1912,6 +1912,83 @@ const academicTotals = computed(() => {
                             >
                                 <div class="grid gap-5 md:grid-cols-2">
 
+                                    <!-- Subject snapshot -->
+                                    <div class="rounded-lg border bg-white shadow-sm overflow-hidden">
+                                        <div class="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
+                                            <BookOpen class="h-3.5 w-3.5 text-blue-500" />
+                                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                                Enrolled Subjects
+                                                <span v-if="entry.subjectCount" class="ml-1 font-bold text-blue-600">
+                                                    ({{ entry.subjectCount }})
+                                                </span>
+                                            </p>
+                                        </div>
+
+                                        <!-- No snapshot available -->
+                                        <div
+                                            v-if="entry.enrolled_subjects.length === 0"
+                                            class="flex flex-col items-center justify-center py-8 text-gray-400 text-xs"
+                                        >
+                                            <BookOpen class="mb-2 h-6 w-6 opacity-30" />
+                                            <p>No subject snapshot</p>
+                                            <p class="mt-0.5 opacity-70">Assessment predates per-subject records</p>
+                                        </div>
+
+                                        <!-- Subject rows -->
+                                        <div v-else class="overflow-auto max-h-72">
+                                            <table class="w-full text-xs">
+                                                <thead class="sticky top-0 bg-gray-50 text-gray-500 uppercase tracking-wide">
+                                                    <tr>
+                                                        <th class="px-3 py-2 text-left font-semibold">Code</th>
+                                                        <th class="px-3 py-2 text-left font-semibold">Subject</th>
+                                                        <th class="px-2 py-2 text-center font-semibold w-10">Lec</th>
+                                                        <th class="px-2 py-2 text-center font-semibold w-10">Lab</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr
+                                                        v-for="subj in entry.enrolled_subjects"
+                                                        :key="subj.subject_id ?? subj.code"
+                                                        :class="{
+                                                            'bg-amber-50/70': subj.is_nstp,
+                                                            'bg-sky-50/50':   subj.is_pathfit,
+                                                            'bg-white':       !subj.is_nstp && !subj.is_pathfit,
+                                                        }"
+                                                    >
+                                                        <td class="px-3 py-2 font-mono font-semibold text-gray-700">{{ subj.code }}</td>
+                                                        <td class="px-3 py-2 text-gray-800 max-w-[160px] truncate" :title="subj.name">
+                                                            {{ subj.name }}
+                                                            <span v-if="subj.is_nstp" class="ml-1 text-amber-600 font-bold text-xs">NSTP</span>
+                                                            <span v-else-if="subj.is_pathfit" class="ml-1 text-sky-600 font-bold text-xs">PATHFIT</span>
+                                                        </td>
+                                                        <td class="px-2 py-2 text-center font-mono text-gray-700">
+                                                            <template v-if="subj.is_nstp && subj.nstp_billing_units !== subj.lec_units">
+                                                                <span class="text-amber-700 font-semibold">{{ subj.nstp_billing_units }}</span>
+                                                                <span class="block text-gray-400 font-normal" style="font-size:10px">({{ subj.lec_units }} acad.)</span>
+                                                            </template>
+                                                            <template v-else>{{ subj.lec_units || '—' }}</template>
+                                                        </td>
+                                                        <td class="px-2 py-2 text-center font-mono text-gray-700">{{ subj.lab_units || '—' }}</td>
+                                                    </tr>
+                                                </tbody>
+                                                <!-- Totals footer -->
+                                                <tfoot class="border-t-2 border-gray-200 bg-gray-50">
+                                                    <tr>
+                                                        <td colspan="2" class="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                                            Totals
+                                                        </td>
+                                                        <td class="px-2 py-2 text-center font-mono font-bold text-blue-700">
+                                                            {{ entry.lec_units + entry.nstp_lec_units }}
+                                                        </td>
+                                                        <td class="px-2 py-2 text-center font-mono font-bold text-gray-700">
+                                                            {{ entry.lab_units }}
+                                                        </td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    </div>
+
                                     <!-- Fee summary -->
                                     <div class="rounded-lg border bg-white p-4 shadow-sm">
                                         <p class="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1998,93 +2075,6 @@ const academicTotals = computed(() => {
                                                     </span>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Subject snapshot -->
-                                    <div class="rounded-lg border bg-white shadow-sm overflow-hidden">
-                                        <div class="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
-                                            <BookOpen class="h-3.5 w-3.5 text-blue-500" />
-                                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                                Enrolled Subjects
-                                                <span v-if="entry.subjectCount" class="ml-1 font-bold text-blue-600">
-                                                    ({{ entry.subjectCount }})
-                                                </span>
-                                            </p>
-                                        </div>
-
-                                        <!-- No snapshot available -->
-                                        <div
-                                            v-if="entry.enrolled_subjects.length === 0"
-                                            class="flex flex-col items-center justify-center py-8 text-gray-400 text-xs"
-                                        >
-                                            <BookOpen class="mb-2 h-6 w-6 opacity-30" />
-                                            <p>No subject snapshot</p>
-                                            <p class="mt-0.5 opacity-70">Assessment predates per-subject records</p>
-                                        </div>
-
-                                        <!-- Subject rows -->
-                                        <div v-else class="overflow-auto max-h-72">
-                                            <table class="w-full text-xs">
-                                                <thead class="sticky top-0 bg-gray-50 text-gray-500 uppercase tracking-wide">
-                                                    <tr>
-                                                        <th class="px-3 py-2 text-left font-semibold">Code</th>
-                                                        <th class="px-3 py-2 text-left font-semibold">Subject</th>
-                                                        <th class="px-2 py-2 text-center font-semibold w-10">Lec</th>
-                                                        <th class="px-2 py-2 text-center font-semibold w-10">Lab</th>
-                                                        <th class="px-2 py-2 text-right font-semibold w-20">Fee</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-gray-100">
-                                                    <tr
-                                                        v-for="subj in entry.enrolled_subjects"
-                                                        :key="subj.subject_id ?? subj.code"
-                                                        :class="{
-                                                            'bg-amber-50/70': subj.is_nstp,
-                                                            'bg-sky-50/50':   subj.is_pathfit,
-                                                            'bg-white':       !subj.is_nstp && !subj.is_pathfit,
-                                                        }"
-                                                    >
-                                                        <td class="px-3 py-2 font-mono font-semibold text-gray-700">{{ subj.code }}</td>
-                                                        <td class="px-3 py-2 text-gray-800 max-w-[160px] truncate" :title="subj.name">
-                                                            {{ subj.name }}
-                                                            <span v-if="subj.is_nstp" class="ml-1 text-amber-600 font-bold text-xs">NSTP</span>
-                                                            <span v-else-if="subj.is_pathfit" class="ml-1 text-sky-600 font-bold text-xs">PATHFIT</span>
-                                                        </td>
-                                                        <td class="px-2 py-2 text-center font-mono text-gray-700">
-                                                            <template v-if="subj.is_nstp && subj.nstp_billing_units !== subj.lec_units">
-                                                                <span class="text-amber-700 font-semibold">{{ subj.nstp_billing_units }}</span>
-                                                                <span class="block text-gray-400 font-normal" style="font-size:10px">({{ subj.lec_units }} acad.)</span>
-                                                            </template>
-                                                            <template v-else>{{ subj.lec_units || '—' }}</template>
-                                                        </td>
-                                                        <td class="px-2 py-2 text-center font-mono text-gray-700">{{ subj.lab_units || '—' }}</td>
-                                                        <td class="px-2 py-2 text-right font-mono text-gray-700">
-                                                            <template v-if="subj.is_billable">
-                                                                {{ formatCurrency(subj.total_fee) }}
-                                                            </template>
-                                                            <span v-else class="text-gray-300">—</span>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                                <!-- Totals footer -->
-                                                <tfoot class="border-t-2 border-gray-200 bg-gray-50">
-                                                    <tr>
-                                                        <td colspan="2" class="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                                            Totals
-                                                        </td>
-                                                        <td class="px-2 py-2 text-center font-mono font-bold text-blue-700">
-                                                            {{ entry.lec_units + entry.nstp_lec_units }}
-                                                        </td>
-                                                        <td class="px-2 py-2 text-center font-mono font-bold text-gray-700">
-                                                            {{ entry.lab_units }}
-                                                        </td>
-                                                        <td class="px-2 py-2 text-right font-mono font-bold text-blue-700">
-                                                            {{ formatCurrency(entry.total_assessment - entry.misc_fee) }}
-                                                        </td>
-                                                    </tr>
-                                                </tfoot>
-                                            </table>
                                         </div>
                                     </div>
 
